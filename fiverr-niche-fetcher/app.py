@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 
@@ -47,9 +48,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Fiverr Gig Growth System — Phase 4",
-    version="5.0.0",
-    description="Crawl, analytics, semantic audits and human-approved Fiverr gig generation.",
+    title="GigCraft",
+    version="6.0.0",
+    description="Premium local studio for Fiverr market research and human-approved gig drafts.",
     lifespan=lifespan,
 )
 
@@ -434,130 +435,139 @@ async def download(filename: str) -> FileResponse:
     return FileResponse(path, filename=filename, media_type=media_type)
 
 
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fiverr Gig Growth System — Phase 4</title>
-  <style>
-    :root{--bg:#07120e;--panel:#0f2018;--panel2:#14281f;--line:#29483a;--text:#f3fbf6;--muted:#a5bdb1;--green:#1dbf73;--green2:#75ecb2;--danger:#ff7979;--warn:#ffd37a;--blue:#7cb7ff}
-    *{box-sizing:border-box} body{margin:0;min-height:100vh;color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:radial-gradient(circle at 12% 4%,rgba(29,191,115,.16),transparent 30rem),radial-gradient(circle at 92% 24%,rgba(124,183,255,.08),transparent 25rem),var(--bg)}
-    .wrap{width:min(1180px,calc(100% - 32px));margin:auto;padding:50px 0 80px}.eyebrow{color:var(--green2);font-size:12px;font-weight:900;letter-spacing:.15em;text-transform:uppercase}h1{margin:9px 0 12px;max-width:900px;font-size:clamp(36px,6vw,68px);line-height:1;letter-spacing:-.05em}.lead{max-width:780px;color:var(--muted);font-size:18px;line-height:1.6}
-    .search-card{margin-top:30px;padding:20px;display:grid;grid-template-columns:1fr 150px auto;gap:12px;border:1px solid var(--line);background:rgba(15,32,24,.9);border-radius:18px;box-shadow:0 22px 65px rgba(0,0,0,.3)}label{display:block;margin:0 0 8px 2px;color:var(--muted);font-size:12px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}input,select,button,a.button{font:inherit}input,select{width:100%;height:50px;padding:0 15px;color:var(--text);background:#081710;border:1px solid var(--line);border-radius:12px;outline:none}input:focus,select:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(29,191,115,.12)}
-    button,a.button{height:50px;align-self:end;display:inline-flex;align-items:center;justify-content:center;padding:0 21px;border:0;border-radius:12px;color:#03130a;background:var(--green);font-weight:900;text-decoration:none;cursor:pointer}button:hover,a.button:hover{background:var(--green2)}button:disabled{opacity:.55;cursor:not-allowed}.secondary{color:var(--text)!important;background:var(--panel2)!important;border:1px solid var(--line)!important}.danger{color:#fff!important;background:#672c32!important;border:1px solid #a94952!important}.fine{margin:12px 3px 0;color:#7f9a8d;font-size:13px;line-height:1.55}
-    .job-panel{display:none;margin-top:24px;padding:20px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}.job-panel.show{display:block}.job-top{display:flex;justify-content:space-between;align-items:flex-start;gap:15px}.job-top h2{margin:0 0 5px;font-size:21px}.job-id{color:#7f9a8d;font:12px ui-monospace,monospace;overflow-wrap:anywhere}.stage{display:inline-flex;margin-top:8px;padding:5px 9px;border-radius:999px;color:var(--green2);background:#092017;border:1px solid #295440;font-size:12px;font-weight:800;text-transform:capitalize}.progress-track{height:12px;margin:18px 0 10px;overflow:hidden;border:1px solid #2b4b3d;border-radius:999px;background:#07120e}.progress-bar{height:100%;width:0;background:linear-gradient(90deg,var(--green),var(--green2));transition:width .35s ease}.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:9px}.metric{padding:11px;background:#091710;border:1px solid #233d32;border-radius:11px}.metric small{display:block;color:#82998e;font-size:11px;text-transform:uppercase}.metric strong{display:block;margin-top:3px;font-size:18px}.job-message{margin:12px 0 0;color:var(--muted);font-size:13px}.warning{margin:10px 0;padding:11px 13px;border:1px solid rgba(255,211,122,.35);border-radius:10px;color:var(--warn);background:rgba(255,211,122,.06);font-size:13px}.error{color:var(--danger)!important}
-    .summary{display:none;margin:28px 0 15px;align-items:center;justify-content:space-between;gap:14px}.summary.show{display:flex}.summary h2{margin:0;font-size:25px}.summary p{margin:4px 0 0;color:var(--muted)}.downloads,.pager{display:flex;gap:8px;flex-wrap:wrap}.downloads a.button,.pager button{height:39px;padding:0 14px;color:var(--text);background:var(--panel2);border:1px solid var(--line);font-size:13px}.pager-wrap{display:none;margin:12px 0 18px;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font-size:13px}.pager-wrap.show{display:flex}
-    .results{display:grid;gap:14px}.gig{overflow:hidden;border:1px solid var(--line);border-radius:17px;background:rgba(15,32,24,.92)}.gig-main{padding:19px;display:grid;grid-template-columns:1fr auto;gap:18px}.gig h3{margin:0 0 9px;font-size:19px;line-height:1.35}.gig h3 a{color:var(--text);text-decoration:none}.gig h3 a:hover{color:var(--green2)}.meta{display:flex;gap:7px;flex-wrap:wrap}.chip{padding:6px 9px;color:var(--muted);background:#081710;border:1px solid var(--line);border-radius:999px;font-size:12px}.chip.rank{color:#05140c;background:var(--green2);border-color:var(--green2);font-weight:900}.chip.ad{color:#1b1100;background:var(--warn);border-color:var(--warn);font-weight:900}.price{min-width:110px;text-align:right}.price small{display:block;color:var(--muted)}.price strong{font-size:24px;color:var(--green2)}details{border-top:1px solid var(--line)}summary{padding:14px 20px;color:var(--muted);font-weight:750;cursor:pointer}.detail-body{padding:4px 20px 20px;display:grid;gap:12px}.data-box{overflow:hidden;border:1px solid #28483a;border-radius:13px;background:#08130e}.data-head{min-height:45px;padding:8px 10px 8px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1e352b;background:#102119}.data-head h4{margin:0;color:var(--green2);font-size:14px}button.copy-btn{width:auto;min-width:72px;height:30px;align-self:auto;padding:0 10px;color:var(--text);background:#183025;border:1px solid #365c4b;border-radius:8px;font-size:12px}button.copy-btn:hover,button.copy-btn.copied{color:#03130a;background:var(--green2)}pre{margin:0;max-height:360px;overflow:auto;padding:14px;white-space:pre-wrap;overflow-wrap:anywhere;color:#d9e9e0;background:#08130e;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
-    .analysis-panel{display:none;margin:24px 0;border:1px solid var(--line);border-radius:18px;background:rgba(15,32,24,.94);overflow:hidden}.analysis-panel.show{display:block}.analysis-head{padding:18px 20px;display:flex;align-items:flex-start;justify-content:space-between;gap:15px;border-bottom:1px solid var(--line)}.analysis-head h2{margin:0 0 5px;font-size:23px}.analysis-head p{margin:0;color:var(--muted);font-size:13px}.tabs{display:flex;gap:7px;padding:12px 14px;overflow-x:auto;border-bottom:1px solid var(--line);background:#0a1912}.tabs button{height:35px;min-width:max-content;padding:0 12px;align-self:auto;color:var(--muted);background:#102219;border:1px solid #29483a;border-radius:9px;font-size:12px}.tabs button.active{color:#03130a;background:var(--green2);border-color:var(--green2)}.analysis-content{padding:18px;display:grid;gap:16px}.analytics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.analytics-card{padding:14px;border:1px solid #29483a;border-radius:12px;background:#081710}.analytics-card small{display:block;color:#82998e;font-size:11px;text-transform:uppercase}.analytics-card strong{display:block;margin-top:5px;color:var(--green2);font-size:22px}.analytics-card span{display:block;margin-top:3px;color:var(--muted);font-size:12px}.panel-block{padding:14px;border:1px solid #29483a;border-radius:13px;background:#091710}.panel-block h3{margin:0 0 11px;font-size:16px}.table-wrap{overflow:auto;max-height:560px;border:1px solid #29483a;border-radius:11px}.analysis-table{width:100%;border-collapse:collapse;min-width:760px;font-size:12px}.analysis-table th{position:sticky;top:0;z-index:1;padding:10px;text-align:left;color:var(--green2);background:#102219;border-bottom:1px solid #355a49;cursor:pointer;white-space:nowrap}.analysis-table td{padding:9px 10px;color:#d8e8df;border-bottom:1px solid #1d342a;vertical-align:top}.analysis-table tr:hover td{background:#0d2017}.bar-list{display:grid;gap:8px}.bar-row{display:grid;grid-template-columns:minmax(110px,220px) 1fr 55px;gap:9px;align-items:center;font-size:12px}.bar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.bar-track{height:9px;overflow:hidden;border-radius:99px;background:#07120e;border:1px solid #29483a}.bar-fill{height:100%;background:linear-gradient(90deg,var(--green),var(--blue));border-radius:99px}.bar-value{text-align:right;color:var(--text)}.analysis-note{padding:12px;border-left:3px solid var(--blue);color:var(--muted);background:rgba(124,183,255,.06);font-size:13px;line-height:1.55}.filter-row{display:flex;gap:9px;flex-wrap:wrap}.filter-row input,.filter-row select{width:auto;min-width:150px;height:40px}.empty{padding:24px;text-align:center;color:var(--muted)}
-    .ai-panel{display:none;margin:24px 0;border:1px solid #3b4e69;border-radius:18px;background:linear-gradient(145deg,rgba(13,28,27,.97),rgba(14,24,39,.97));overflow:hidden}.ai-panel.show{display:block}.ai-head{padding:18px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:15px;border-bottom:1px solid #31465c}.ai-head h2{margin:0 0 5px}.ai-head p{margin:0;color:var(--muted);font-size:13px}.ai-state{padding:6px 10px;border:1px solid #3e5c78;border-radius:999px;color:var(--blue);font-size:12px;font-weight:800}.ai-controls{padding:16px 20px;display:grid;grid-template-columns:150px 130px 1fr auto;gap:10px;align-items:end;border-bottom:1px solid #31465c}.ai-controls input,.ai-controls select{height:43px}.ai-controls button{height:43px}.ai-progress{display:none;padding:15px 20px;border-bottom:1px solid #31465c}.ai-progress.show{display:block}.ai-results{display:none}.ai-results.show{display:block}.score-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}.score-card{padding:12px;border:1px solid #35506a;border-radius:11px;background:#0a1822}.score-card small{display:block;color:#8da6bc;font-size:11px}.score-card strong{display:block;margin-top:4px;color:var(--blue);font-size:22px}.model-list{display:grid;gap:7px}.model-row{padding:10px;border:1px solid #31465c;border-radius:9px;color:var(--muted);font:12px ui-monospace,monospace}.security-note{padding:12px 20px;color:#a9bfd2;background:rgba(124,183,255,.06);font-size:12px;line-height:1.55}
-    .builder-panel{display:none;margin:24px 0;border:1px solid #66513c;border-radius:18px;background:linear-gradient(145deg,rgba(28,24,16,.97),rgba(29,20,31,.97));overflow:hidden}.builder-panel.show{display:block}.builder-head{padding:18px 20px;display:flex;align-items:flex-start;justify-content:space-between;gap:15px;border-bottom:1px solid #5b4637}.builder-head h2{margin:0 0 5px}.builder-head p{margin:0;color:var(--muted);font-size:13px}.builder-controls{padding:16px 20px;display:grid;grid-template-columns:140px 1fr 1fr;gap:10px;border-bottom:1px solid #5b4637}.builder-controls input,.builder-controls select{height:42px}.builder-actions{padding:0 20px 16px;display:flex;gap:9px;flex-wrap:wrap}.builder-actions button,.builder-actions a{height:42px}.draft-text{padding:14px;border:1px solid #5b4637;border-radius:10px;background:#120f0d;color:#eee0d4;white-space:pre-wrap;line-height:1.55}.approval{display:flex;gap:8px;align-items:center}.approval span{color:var(--warn);font-size:12px;font-weight:800}
-    footer{margin-top:42px;color:#6e887b;font-size:13px;line-height:1.6}@media(max-width:800px){.search-card{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}.analytics-grid,.score-grid{grid-template-columns:repeat(2,1fr)}.ai-controls,.builder-controls{grid-template-columns:1fr}.job-top,.summary,.gig-main,.pager-wrap,.analysis-head,.ai-head,.builder-head{align-items:flex-start;flex-direction:column;display:flex}.summary,.pager-wrap{display:none}.summary.show,.pager-wrap.show{display:flex}.price{text-align:left}}
-    /* Premium minimal workspace */
-    :root{--bg:#0b0c0e;--panel:#121316;--panel2:#17191d;--line:#27292e;--text:#f4f2ec;--muted:#97989e;--green:#31d889;--green2:#78e8b2;--danger:#ff7878;--warn:#d8b46c;--blue:#8ebcff}
-    body{background:radial-gradient(circle at 50% -220px,rgba(49,216,137,.12),transparent 440px),var(--bg);letter-spacing:-.005em}
-    .wrap{width:min(1240px,calc(100% - 40px));padding:22px 0 76px}.topbar{height:58px;display:flex;align-items:center;justify-content:space-between;margin-bottom:68px;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:11px}.brand-mark{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;background:var(--text);color:#0b0c0e;font-size:11px;font-weight:950;letter-spacing:.02em}.brand strong{display:block;font-size:13px}.brand small{display:block;margin-top:1px;color:#777a80;font-size:10px}.topbar-meta{display:flex;align-items:center;gap:7px;color:#85878d;font-size:11px}.privacy-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(49,216,137,.09)}
-    .eyebrow{font-size:11px;color:#7d827f;letter-spacing:.13em}.wrap>h1{max-width:760px;margin:12px 0 14px;font-size:clamp(38px,5vw,62px);font-weight:720;letter-spacing:-.055em}.lead{max-width:720px;color:#a5a6aa;font-size:17px;line-height:1.65}
-    .search-card{margin-top:30px;padding:10px;grid-template-columns:1fr 145px 210px;gap:8px;background:#111216;border:1px solid #292b30;border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.22)}.search-card>div{padding:2px 3px}.search-card label{margin:0 0 5px 2px;font-size:9px;color:#74767c}.search-card input,.search-card select{height:43px;border:0;background:#191b1f;border-radius:9px;box-shadow:none}.search-card button{height:43px;border-radius:9px}.fine{max-width:790px;margin-top:10px;color:#6f7278;font-size:11px}
-    button,a.button{border-radius:9px;box-shadow:none;transition:transform .15s ease,background .15s ease,border-color .15s ease}button:hover,a.button:hover{transform:translateY(-1px)}
-    .workspace-nav{position:sticky;top:10px;z-index:20;margin:34px 0 22px;padding:5px;display:flex;gap:4px;overflow-x:auto;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(17,18,21,.88);backdrop-filter:blur(18px);box-shadow:0 12px 32px rgba(0,0,0,.2)}.workspace-nav button{height:38px;min-width:max-content;align-self:auto;padding:0 14px;gap:8px;color:#888a90;background:transparent;border:0;border-radius:8px;font-size:11px;font-weight:750}.workspace-nav button span{color:#585b61;font:9px ui-monospace,monospace}.workspace-nav button.active{color:#0a0b0c;background:#f1efe9}.workspace-nav button.active span{color:#4d504f}.workspace-nav button:disabled{opacity:.28;cursor:not-allowed}.workspace-hidden{display:none!important}
-    .job-panel,.analysis-panel,.ai-panel,.builder-panel,.gig{border-color:var(--line);background:#111216;box-shadow:0 16px 48px rgba(0,0,0,.16)}.job-panel{padding:18px}.job-top h2,.analysis-head h2,.ai-head h2,.builder-head h2{font-weight:650;letter-spacing:-.025em}.stage,.ai-state{border-color:#2d4238;background:#121c17;color:var(--green2)}.progress-track{height:6px;border:0;background:#202227}.progress-bar{background:linear-gradient(90deg,var(--green),#a8efcb)}.metrics{gap:7px}.metric{padding:10px;border-color:#25272c;background:#15171a}.metric small{font-size:9px}.metric strong{font-size:16px;font-weight:650}
-    .summary{padding:4px 2px}.summary h2{font-weight:650}.analysis-panel,.ai-panel,.builder-panel{border-radius:14px}.analysis-head,.ai-head,.builder-head{padding:17px 18px;border-color:var(--line)}.analysis-content{padding:14px}.tabs{padding:7px;background:#0f1012;border-color:var(--line)}.tabs button{height:32px;padding:0 11px;border-color:transparent;background:transparent;color:#777980}.tabs button.active{color:#eeeae1;background:#202226;border-color:#2b2d32}.analytics-grid,.score-grid{gap:7px}.analytics-card,.score-card{padding:12px;border-color:#25272c;background:#15171a}.analytics-card strong,.score-card strong{color:var(--text);font-size:19px;font-weight:650}.panel-block{padding:12px;border-color:#25272c;background:#131518}.table-wrap{border-color:#282a30}.analysis-table th{padding:9px;background:#1a1c20;color:#b7b8ba;border-color:#303239;font-size:10px;text-transform:uppercase;letter-spacing:.04em}.analysis-table td{padding:9px;color:#c5c6c8;border-color:#22242a}.analysis-table tr:hover td{background:#17191d}.analysis-note,.security-note{border-left-color:#62666d;background:#17191d;color:#9b9da2}.bar-track{border:0;background:#24262b}.bar-fill{background:var(--green)}
-    .ai-panel,.builder-panel{background:#111216;border-color:var(--line)}.ai-controls,.builder-controls{border-color:var(--line)}.builder-head,.builder-controls{border-color:var(--line)}.builder-actions{padding-top:2px}.data-box{border-color:#26282d;background:#121316}.data-head{background:#17191d;border-color:#26282d}.data-head h4{color:#c6c7c9}.data-box pre{background:#101113;color:#c8cacb}.gig{border-radius:13px}.gig-main{padding:16px}.chip{padding:5px 8px;border-color:#292b31;background:#16181b;color:#92949a}.chip.rank{background:var(--text);border-color:var(--text);color:#111216}.chip.ad{background:#d7b36d;border-color:#d7b36d}.price strong{font-size:20px}.raw-header{margin:28px 2px 12px;display:flex;align-items:flex-end;justify-content:space-between}.raw-header h2{margin:4px 0 0;font-size:24px}.raw-header p{margin:0;color:var(--muted);font-size:12px}.section-kicker{color:#6f7278;font-size:9px;text-transform:uppercase;letter-spacing:.12em}
-    footer{padding-top:24px;border-top:1px solid var(--line);font-size:11px}
-    @media(max-width:800px){.wrap{width:min(100% - 22px,1240px);padding-top:10px}.topbar{margin-bottom:42px}.topbar-meta{display:none}.search-card{grid-template-columns:1fr}.workspace-nav{top:5px}.workspace-nav button{padding:0 10px}.raw-header{align-items:flex-start;flex-direction:column;gap:5px}}
-  </style>
+  <title>GigCraft Lab</title>
+  <meta name="theme-color" content="#f4f3ee">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,480;8..60,560&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/lab.css">
 </head>
-<body data-workspace="crawl"><main class="wrap">
-  <header class="topbar"><div class="brand"><span class="brand-mark">FG</span><div><strong>Fiverr Growth OS</strong><small>Local market intelligence</small></div></div><div class="topbar-meta"><span class="privacy-dot"></span>Private workspace</div></header>
-  <div class="eyebrow">Phase 4 · Research-to-action gig builder</div>
-  <h1>Fiverr Gig Growth System</h1>
-  <p class="lead">Public market crawl, deterministic analytics, optional semantic audit aur evidence-led gig draft generation—human approval, compliance validation aur strict OpenRouter cost controls ke saath.</p>
-  <form id="form" class="search-card workspace-crawl">
-    <div><label for="niche">Niche / keyword</label><input id="niche" value="Looker Studio" minlength="2" maxlength="100" required></div>
-    <div><label for="limit">Maximum gigs</label><select id="limit"><option>3</option><option selected>5</option><option>10</option><option>25</option><option>50</option><option>100</option><option>250</option><option>500</option></select></div>
-    <button id="submit" type="submit">Start background job</button>
-  </form>
-  <p class="fine workspace-crawl">Phase 3/4 AI sirf explicit button par chalega; dono ka default dry-run hai aur zero tokens consume karta hai. Generated gigs drafts hain—automatic Fiverr publishing nahi hoti. API key environment-only hai.</p>
-
-  <nav id="workspaceNav" class="workspace-nav" aria-label="Workspace modules">
-    <button type="button" data-workspace="crawl" class="active"><span>01</span>Crawl</button>
-    <button type="button" data-workspace="intelligence" disabled><span>02</span>Intelligence</button>
-    <button type="button" data-workspace="ai" disabled><span>03</span>AI Audit</button>
-    <button type="button" data-workspace="builder" disabled><span>04</span>Gig Builder</button>
-    <button type="button" data-workspace="raw" disabled><span>05</span>Raw Data</button>
-  </nav>
-
-  <section id="jobPanel" class="job-panel workspace-crawl">
-    <div class="job-top"><div><h2 id="jobTitle">Crawl job</h2><div id="jobId" class="job-id"></div><span id="stage" class="stage">queued</span></div><button id="cancel" class="danger" type="button">Cancel job</button></div>
-    <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
-    <div class="metrics">
-      <div class="metric"><small>Progress</small><strong id="mProgress">0%</strong></div>
-      <div class="metric"><small>Pages</small><strong id="mPages">0</strong></div>
-      <div class="metric"><small>Discovered</small><strong id="mDiscovered">0</strong></div>
-      <div class="metric"><small>Processed</small><strong id="mProcessed">0</strong></div>
-      <div class="metric"><small>Success</small><strong id="mSuccess">0</strong></div>
-      <div class="metric"><small>Failed</small><strong id="mFailed">0</strong></div>
+<body data-workspace="crawl">
+<div class="scrim" id="scrim"></div>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="/">
+      <span class="mark">G</span>
+      <div><strong class="brand-name">GigCraft</strong><small class="brand-sub">Lab</small></div>
+    </a>
+    <nav class="nav" id="sideNav">
+      <a href="/"><span class="ico">✦</span>Studio</a>
+      <button type="button" data-workspace="crawl" class="active"><span class="ico">01</span>Crawl</button>
+      <button type="button" data-workspace="intelligence" disabled><span class="ico">02</span>Intelligence</button>
+      <button type="button" data-workspace="ai" disabled><span class="ico">03</span>Audit</button>
+      <button type="button" data-workspace="builder" disabled><span class="ico">04</span>Builder</button>
+      <button type="button" data-workspace="raw" disabled><span class="ico">05</span>Source</button>
+    </nav>
+    <div class="side-foot">
+      <div class="status-row"><span class="dot on"></span><span>Private workspace</span></div>
     </div>
-    <p id="jobMessage" class="job-message"></p><div id="warnings"></div>
-  </section>
+  </aside>
+  <div class="stage">
+    <header class="top">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu">☰</button>
+      <div class="top-title">Market intelligence</div>
+    </header>
+    <main class="canvas wide wrap">
+      <div class="page-kicker">Research workspace</div>
+      <h1 class="page-title">See the market, then write the gig.</h1>
+      <p class="lead">Crawl public listings, read the patterns, optionally audit with AI, and generate a draft that still needs your approval.</p>
 
-  <section id="summary" class="summary workspace-crawl"><div><h2 id="summaryTitle">Results</h2><p id="summaryMeta"></p></div><div id="downloads" class="downloads"></div></section>
+      <form id="form" class="search-card composer workspace-crawl">
+        <div><label for="niche">Niche</label><input id="niche" value="Looker Studio" minlength="2" maxlength="100" required></div>
+        <div><label for="limit">Gigs</label><select id="limit"><option>3</option><option selected>5</option><option>10</option><option>25</option><option>50</option><option>100</option><option>250</option><option>500</option></select></div>
+        <button id="submit" type="submit">Start crawl</button>
+      </form>
+      <p class="fine workspace-crawl">AI stays off until you ask. Dry run is the default and costs nothing. Drafts are never published to Fiverr.</p>
 
-  <section id="analysisPanel" class="analysis-panel workspace-intelligence">
-    <div class="analysis-head"><div><h2>Phase 2 Market Intelligence</h2><p id="analysisMeta">Deterministic analytics · No LLM</p></div><a id="analysisCsv" class="button secondary" href="#">Download tab CSV</a></div>
-    <div id="analysisTabs" class="tabs">
-      <button type="button" data-tab="overview" class="active">Overview</button>
-      <button type="button" data-tab="rankings">Rankings</button>
-      <button type="button" data-tab="movement">Movement</button>
-      <button type="button" data-tab="keywords">Keywords</button>
-      <button type="button" data-tab="clusters">Clusters</button>
-      <button type="button" data-tab="pricing">Pricing</button>
-      <button type="button" data-tab="packages">Packages</button>
-      <button type="button" data-tab="competitors">Competitors</button>
-      <button type="button" data-tab="reviews">Reviews</button>
-      <button type="button" data-tab="gaps">Market Gaps</button>
-    </div>
-    <div id="analysisContent" class="analysis-content"></div>
-  </section>
+      <nav id="workspaceNav" class="workspace-nav" aria-label="Workspace modules">
+        <button type="button" data-workspace="crawl" class="active"><span>01</span>Crawl</button>
+        <button type="button" data-workspace="intelligence" disabled><span>02</span>Intelligence</button>
+        <button type="button" data-workspace="ai" disabled><span>03</span>Audit</button>
+        <button type="button" data-workspace="builder" disabled><span>04</span>Builder</button>
+        <button type="button" data-workspace="raw" disabled><span>05</span>Source</button>
+      </nav>
 
-  <section id="aiPanel" class="ai-panel workspace-ai">
-    <div class="ai-head"><div><h2>Phase 3 Semantic Audit</h2><p>OpenRouter · structured JSON · evidence-first · cached</p></div><span id="aiKeyState" class="ai-state">Checking configuration…</span></div>
-    <div class="ai-controls">
-      <div><label for="aiMode">Mode</label><select id="aiMode"><option value="dry_run" selected>Dry run — $0</option><option value="test">Tiny live test</option><option value="standard">Standard audit</option><option value="deep">Deep audit</option></select></div>
-      <div><label for="aiMaxGigs">Max gigs</label><select id="aiMaxGigs"><option>1</option><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div>
-      <div><label for="ownGigUrl">Your gig URL — optional</label><input id="ownGigUrl" placeholder="https://www.fiverr.com/user/your-gig"></div>
-      <button id="runAi" type="button">Run Phase 3</button>
-    </div>
-    <div class="security-note">Dry run is recommended first and consumes zero tokens. Real modes require a newly rotated <code>OPENROUTER_API_KEY</code> environment secret. The key is never persisted or returned.</div>
-    <div id="aiProgress" class="ai-progress"><div class="progress-track"><div id="aiProgressBar" class="progress-bar"></div></div><p id="aiProgressText" class="job-message"></p></div>
-    <div id="aiResults" class="ai-results">
-      <div id="aiTabs" class="tabs"><button type="button" data-ai-tab="ai_overview" class="active">AI Overview</button><button type="button" data-ai-tab="intents">Intent Map</button><button type="button" data-ai-tab="scores">Scores</button><button type="button" data-ai-tab="similarity">Similarity</button><button type="button" data-ai-tab="synthesis">Market Synthesis</button><button type="button" data-ai-tab="evidence">Evidence</button><button type="button" data-ai-tab="usage">Usage & Cost</button></div>
-      <div id="aiContent" class="analysis-content"></div>
-    </div>
-  </section>
+      <section id="jobPanel" class="job-panel workspace-crawl">
+        <div class="job-top"><div><h2 id="jobTitle">Crawl</h2><div id="jobId" class="job-id"></div><span id="stage" class="stage">queued</span></div><button id="cancel" class="danger" type="button">Cancel</button></div>
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <div class="metrics">
+          <div class="metric"><small>Progress</small><strong id="mProgress">0%</strong></div>
+          <div class="metric"><small>Pages</small><strong id="mPages">0</strong></div>
+          <div class="metric"><small>Discovered</small><strong id="mDiscovered">0</strong></div>
+          <div class="metric"><small>Processed</small><strong id="mProcessed">0</strong></div>
+          <div class="metric"><small>Success</small><strong id="mSuccess">0</strong></div>
+          <div class="metric"><small>Failed</small><strong id="mFailed">0</strong></div>
+        </div>
+        <p id="jobMessage" class="job-message"></p><div id="warnings"></div>
+      </section>
 
-  <section id="builderPanel" class="builder-panel workspace-builder">
-    <div class="builder-head"><div><h2>Phase 4 Gig Builder</h2><p>Evidence-led draft · human approval required · no auto-publish</p></div><div class="approval"><span id="builderStatus">Dry run available</span><button id="approveDraft" class="secondary" type="button" style="display:none">Approve draft</button></div></div>
-    <div class="builder-controls">
-      <div><label for="builderMode">Mode</label><select id="builderMode"><option value="dry_run" selected>Dry run — $0</option><option value="test">Tiny live draft</option><option value="standard">Standard draft</option><option value="deep">Deep refine</option></select></div>
-      <div><label for="builderTargetUrl">Existing gig URL — optional</label><input id="builderTargetUrl" placeholder="https://www.fiverr.com/user/gig"></div>
-      <div><label for="builderBuyer">Target buyer</label><input id="builderBuyer" placeholder="e.g. ecommerce marketing teams"></div>
-      <div><label for="builderPositioning">Positioning goal</label><input id="builderPositioning" placeholder="e.g. premium GA4 + dashboard specialist"></div>
-      <div><label for="builderTone">Tone</label><select id="builderTone"><option>professional</option><option>consultative</option><option>technical</option><option>friendly</option><option>premium</option></select></div>
-      <div><label for="builderPricing">Pricing</label><select id="builderPricing"><option value="market_aligned">Market aligned</option><option value="budget">Budget entry</option><option value="premium">Premium</option></select></div>
-    </div>
-    <div class="builder-actions"><button id="runBuilder" type="button">Build Phase 4 draft</button><a id="downloadDraft" class="button secondary" href="#" style="display:none">Download Markdown</a></div>
-    <div class="security-note">Start with dry run. Real generation requires a newly rotated environment key. Generated assets remain drafts and are never posted to Fiverr automatically.</div>
-    <div id="builderProgress" class="ai-progress"><div class="progress-track"><div id="builderProgressBar" class="progress-bar"></div></div><p id="builderProgressText" class="job-message"></p></div>
-    <div id="builderResults" class="ai-results"><div id="builderTabs" class="tabs"><button type="button" data-builder-tab="draft" class="active">Final Gig</button><button type="button" data-builder-tab="packages">Packages</button><button type="button" data-builder-tab="faq">FAQ & Requirements</button><button type="button" data-builder-tab="visuals">Visuals & Video</button><button type="button" data-builder-tab="compliance">Compliance</button><button type="button" data-builder-tab="evidence">Evidence</button><button type="button" data-builder-tab="comparison">Before/After</button><button type="button" data-builder-tab="builder_usage">Usage</button></div><div id="builderContent" class="analysis-content"></div></div>
-  </section>
+      <section id="summary" class="summary workspace-crawl"><div><h2 id="summaryTitle">Results</h2><p id="summaryMeta"></p></div><div id="downloads" class="downloads"></div></section>
 
-  <div class="raw-header workspace-raw"><div><span class="section-kicker">Source records</span><h2>Raw gig data</h2></div><p>Every extracted section, preserved for inspection and export.</p></div>
-  <div id="pagerWrap" class="pager-wrap workspace-raw"><span id="pagerInfo"></span><div class="pager"><button id="prev" class="secondary" type="button">Previous</button><button id="next" class="secondary" type="button">Next</button></div></div>
-  <section id="results" class="results workspace-raw"></section>
-  <footer>Phase 4 outputs are evidence-led drafts requiring human review. The system never auto-publishes, copies competitor text, requests fake reviews, or claims access to Fiverr private metrics/secret ranking weights. Always use a rotated limited-credit key and start with dry run.</footer>
-</main>
+      <section id="analysisPanel" class="analysis-panel workspace-intelligence">
+        <div class="analysis-head"><div><h2>Market intelligence</h2><p id="analysisMeta">Deterministic analytics · No LLM</p></div><a id="analysisCsv" class="button secondary" href="#">Download CSV</a></div>
+        <div id="analysisTabs" class="tabs">
+          <button type="button" data-tab="overview" class="active">Overview</button>
+          <button type="button" data-tab="rankings">Rankings</button>
+          <button type="button" data-tab="movement">Movement</button>
+          <button type="button" data-tab="keywords">Keywords</button>
+          <button type="button" data-tab="clusters">Clusters</button>
+          <button type="button" data-tab="pricing">Pricing</button>
+          <button type="button" data-tab="packages">Packages</button>
+          <button type="button" data-tab="competitors">Competitors</button>
+          <button type="button" data-tab="reviews">Reviews</button>
+          <button type="button" data-tab="gaps">Gaps</button>
+        </div>
+        <div id="analysisContent" class="analysis-content"></div>
+      </section>
+
+      <section id="aiPanel" class="ai-panel workspace-ai">
+        <div class="ai-head"><div><h2>Semantic audit</h2><p>Structured, evidence-first, cached</p></div><span id="aiKeyState" class="ai-state">Checking configuration…</span></div>
+        <div class="ai-controls">
+          <div><label for="aiMode">Mode</label><select id="aiMode"><option value="dry_run" selected>Dry run — $0</option><option value="test">Tiny live test</option><option value="standard">Standard audit</option><option value="deep">Deep audit</option></select></div>
+          <div><label for="aiMaxGigs">Max gigs</label><select id="aiMaxGigs"><option>1</option><option>5</option><option selected>10</option><option>15</option><option>25</option></select></div>
+          <div><label for="ownGigUrl">Your gig URL — optional</label><input id="ownGigUrl" placeholder="https://www.fiverr.com/user/your-gig"></div>
+          <button id="runAi" type="button">Run audit</button>
+        </div>
+        <div class="security-note">Start with dry run. Live modes need a rotated <code>OPENROUTER_API_KEY</code>. The key is never stored or returned.</div>
+        <div id="aiProgress" class="ai-progress"><div class="progress-track"><div id="aiProgressBar" class="progress-bar"></div></div><p id="aiProgressText" class="job-message"></p></div>
+        <div id="aiResults" class="ai-results">
+          <div id="aiTabs" class="tabs"><button type="button" data-ai-tab="ai_overview" class="active">Overview</button><button type="button" data-ai-tab="intents">Intent</button><button type="button" data-ai-tab="scores">Scores</button><button type="button" data-ai-tab="similarity">Similarity</button><button type="button" data-ai-tab="synthesis">Synthesis</button><button type="button" data-ai-tab="evidence">Evidence</button><button type="button" data-ai-tab="usage">Usage</button></div>
+          <div id="aiContent" class="analysis-content"></div>
+        </div>
+      </section>
+
+      <section id="builderPanel" class="builder-panel workspace-builder">
+        <div class="builder-head"><div><h2>Gig builder</h2><p>Evidence-led draft · human approval required</p></div><div class="approval"><span id="builderStatus">Dry run available</span><button id="approveDraft" class="secondary" type="button" style="display:none">Approve draft</button></div></div>
+        <div class="builder-controls">
+          <div><label for="builderMode">Mode</label><select id="builderMode"><option value="dry_run" selected>Dry run — $0</option><option value="test">Tiny live draft</option><option value="standard">Standard draft</option><option value="deep">Deep refine</option></select></div>
+          <div><label for="builderTargetUrl">Existing gig URL — optional</label><input id="builderTargetUrl" placeholder="https://www.fiverr.com/user/gig"></div>
+          <div><label for="builderBuyer">Target buyer</label><input id="builderBuyer" placeholder="e.g. ecommerce marketing teams"></div>
+          <div><label for="builderPositioning">Positioning goal</label><input id="builderPositioning" placeholder="e.g. premium GA4 + dashboard specialist"></div>
+          <div><label for="builderTone">Tone</label><select id="builderTone"><option>professional</option><option>consultative</option><option>technical</option><option>friendly</option><option>premium</option></select></div>
+          <div><label for="builderPricing">Pricing</label><select id="builderPricing"><option value="market_aligned">Market aligned</option><option value="budget">Budget entry</option><option value="premium">Premium</option></select></div>
+        </div>
+        <div class="builder-actions"><button id="runBuilder" type="button">Build draft</button><a id="downloadDraft" class="button secondary" href="#" style="display:none">Download Markdown</a></div>
+        <div class="security-note">Generated assets remain drafts and are never posted automatically.</div>
+        <div id="builderProgress" class="ai-progress"><div class="progress-track"><div id="builderProgressBar" class="progress-bar"></div></div><p id="builderProgressText" class="job-message"></p></div>
+        <div id="builderResults" class="ai-results"><div id="builderTabs" class="tabs"><button type="button" data-builder-tab="draft" class="active">Final gig</button><button type="button" data-builder-tab="packages">Packages</button><button type="button" data-builder-tab="faq">FAQ</button><button type="button" data-builder-tab="visuals">Visuals</button><button type="button" data-builder-tab="compliance">Compliance</button><button type="button" data-builder-tab="evidence">Evidence</button><button type="button" data-builder-tab="comparison">Before/After</button><button type="button" data-builder-tab="builder_usage">Usage</button></div><div id="builderContent" class="analysis-content"></div></div>
+      </section>
+
+      <div class="raw-header workspace-raw"><div><span class="section-kicker">Source records</span><h2>Raw gig data</h2></div><p>Every extracted section, kept for inspection and export.</p></div>
+      <div id="pagerWrap" class="pager-wrap workspace-raw"><span id="pagerInfo"></span><div class="pager"><button id="prev" class="secondary" type="button">Previous</button><button id="next" class="secondary" type="button">Next</button></div></div>
+      <section id="results" class="results workspace-raw"></section>
+      <footer class="lab-foot">Outputs are drafts for human review. GigCraft never auto-publishes, copies competitor text, or claims access to Fiverr private metrics.</footer>
+    </main>
+  </div>
+</div>
 <script>
 const $=id=>document.getElementById(id); const PAGE_SIZE=20;
 let currentJobId=null,pollTimer=null,currentOffset=0,currentTotal=0,analysisData=null,activeAnalysisTab='overview',aiConfig=null,currentAiRunId=null,aiPollTimer=null,aiResult=null,activeAiTab='ai_overview',builderConfig=null,currentBuilderRunId=null,builderPollTimer=null,builderResult=null,activeBuilderTab='draft';
@@ -633,4 +643,23 @@ $('cancel').onclick=async()=>{if(!currentJobId)return;$('cancel').disabled=true;
 $('form').addEventListener('submit',async e=>{e.preventDefault();switchWorkspace('crawl');enableResearchWorkspaces(false);$('submit').disabled=true;$('submit').textContent='Starting…';$('results').replaceChildren();$('summary').classList.remove('show');$('pagerWrap').classList.remove('show');$('analysisPanel').classList.remove('show');$('aiPanel').classList.remove('show');$('builderPanel').classList.remove('show');analysisData=null;aiResult=null;builderResult=null;try{const job=await api('/api/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({niche:$('niche').value,limit:Number($('limit').value)})});currentJobId=job.id;localStorage.setItem('fiverr-current-job',currentJobId);renderJob(job);clearInterval(pollTimer);pollTimer=setInterval(pollJob,1500);await pollJob()}catch(e){$('jobPanel').classList.add('show');$('jobMessage').textContent=e.message;$('jobMessage').classList.add('error');$('submit').disabled=false;$('submit').textContent='Start background job'}});
 async function openExistingJob(job){currentJobId=job.id;renderJob(job);if(['completed','cancelled'].includes(job.status)){showSummary(job);await loadAnalysis();await loadAiConfig();await loadBuilderConfig();await loadResults(0);switchWorkspace('intelligence',false)}else if(['queued','running','cancelling'].includes(job.status)){localStorage.setItem('fiverr-current-job',currentJobId);$('submit').disabled=true;$('submit').textContent='Job running…';if(!pollTimer)pollTimer=setInterval(pollJob,1500)}}
 (async()=>{const saved=localStorage.getItem('fiverr-current-job');if(saved){currentJobId=saved;$('submit').disabled=true;$('submit').textContent='Job running…';await pollJob();if($('submit').disabled&&!pollTimer)pollTimer=setInterval(pollJob,1500);return}try{const recent=await api('/api/jobs?limit=1');if(recent.jobs&&recent.jobs.length)await openExistingJob(recent.jobs[0])}catch{}})();
-</script></body></html>"""
+</script>
+<script>
+document.getElementById('menuBtn').onclick=()=>document.body.classList.add('nav-open');
+document.getElementById('scrim').onclick=()=>document.body.classList.remove('nav-open');
+document.querySelectorAll('#sideNav button[data-workspace]').forEach(button=>{
+  button.onclick=()=>{if(!button.disabled){const target=document.querySelector('#workspaceNav button[data-workspace="'+button.dataset.workspace+'"]');if(target&&!target.disabled)target.click();document.body.classList.remove('nav-open')}}
+});
+const _switch=switchWorkspace;
+switchWorkspace=function(name,scroll=true){
+  _switch(name,scroll);
+  document.querySelectorAll('#sideNav button[data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===name));
+};
+const _enable=enableResearchWorkspaces;
+enableResearchWorkspaces=function(enabled=true){
+  _enable(enabled);
+  document.querySelectorAll('#sideNav button[data-workspace]').forEach(button=>{if(button.dataset.workspace!=='crawl')button.disabled=!enabled});
+};
+</script>
+</body></html>"""
+
