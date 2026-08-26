@@ -16,7 +16,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Iterable
+from typing import Any, Callable, Iterable
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
@@ -1088,7 +1088,7 @@ class FiverrNicheFetcher:
 
     async def _fetch_gig(self, client: httpx.AsyncClient, url: str) -> GigRecord:
         parsed = urlparse(url)
-        source = f"http://{parsed.netloc}{parsed.path}"
+        source = f"https://{parsed.netloc}{parsed.path}"
         reader_url = f"https://r.jina.ai/{source}"
         try:
             markdown = (await self._get_text(client, reader_url)).strip()

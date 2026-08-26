@@ -450,7 +450,8 @@ SIMPLE_HTML = r"""<!doctype html>
 <script>
 const $=id=>document.getElementById(id);let aiConfigured=false,currentState=null,lastInputs=null;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.detail||'Request failed: '+r.status);return d}
+function detailMessage(d,fallback){const x=d&&d.detail;if(!x)return fallback;if(typeof x==='string')return x;if(Array.isArray(x))return x.map(i=>i.msg||i.message||JSON.stringify(i)).join('; ');return x.message||x.msg||JSON.stringify(x)}
+async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(detailMessage(d,'Request failed: '+r.status));return d}
 
 function setProgress(pct,title,text,stage){
   $('progressBar').style.width=Math.max(0,Math.min(100,pct))+'%';

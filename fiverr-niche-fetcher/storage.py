@@ -496,6 +496,7 @@ class Storage:
             seller_online=excluded.seller_online,
             card_title=COALESCE(excluded.card_title, search_results.card_title),
             card_seller_name=COALESCE(excluded.card_seller_name, search_results.card_seller_name),
+            card_seller_username=COALESCE(excluded.card_seller_username, search_results.card_seller_username),
             card_seller_level=COALESCE(excluded.card_seller_level, search_results.card_seller_level),
             card_rating=COALESCE(excluded.card_rating, search_results.card_rating),
             card_review_count=COALESCE(excluded.card_review_count, search_results.card_review_count),
@@ -636,11 +637,12 @@ class Storage:
     def get_all_job_results(self, job_id: str) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         offset = 0
+        page_size = 200
         while True:
-            batch, total = self.get_job_results(job_id, offset=offset, limit=200)
+            batch, total = self.get_job_results(job_id, offset=offset, limit=page_size)
             results.extend(batch)
-            offset += len(batch)
-            if not batch or offset >= total:
+            offset += page_size
+            if offset >= total:
                 break
         return results
 

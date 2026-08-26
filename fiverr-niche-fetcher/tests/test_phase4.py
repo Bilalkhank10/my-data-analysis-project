@@ -6,7 +6,7 @@ from pathlib import Path
 from generation_manager import GenerationManager
 from gig_builder import GigBuilder, generation_markdown, validate_generated_gig
 from market_analyzer import MarketAnalyzer
-from openrouter_client import NoCompatibleEndpoint, OpenRouterConfig, Usage
+from openrouter_client import NoCompatibleEndpoint, OpenRouterConfig, OpenRouterError, Usage
 from storage import Storage
 
 
@@ -291,6 +291,79 @@ class Phase4Tests(unittest.TestCase):
             self.assertTrue(result["warnings"])
             self.assertIn(config.deep_model, fake.models)
             self.assertGreaterEqual(fake.models.count(config.primary_model), 2)
+
+    def test_draft_falls_back_when_primary_has_no_endpoints(self):
+        with tempfile.TemporaryDirectory() as directory:
+            storage, job_id, url = self._fixture(directory)
+            config = OpenRouterConfig(
+                api_key="sk-or-test-placeholder",
+                primary_model="google/unavailable-primary",
+                deep_model="anthropic/claude-sonnet-5",
+                max_cost_usd=1,
+                max_output_tokens=1800,
+            )
+            fake = FakeDeepFallbackClient(config.primary_model)
+            builder = GigBuilder(storage, config=config, client=fake)
+
+            async def run():
+                return await builder.generate(
+                    "draft-fallback",
+                    job_id,
+                    mode="standard",
+                    target_gig_url=url,
+                    preferences={"target_buyer": "Marketing teams"},
+                )
+
+            result = asyncio.run(run())
+            self.assertTrue(result["validation"]["passed"])
+            self.assertEqual(result["models"]["draft"], config.deep_model)
+            self.assertTrue(result["warnings"])
+            self.assertIn(config.primary_model, fake.models)
+
+    def test_generic_openrouter_endpoint_error_still_falls_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            storage, job_id, url = self._fixture(directory)
+            config = OpenRouterConfig(
+                api_key="sk-or-test-placeholder",
+                primary_model="google/gemini-3.7-flash",
+                deep_model="anthropic/unavailable-deep-model",
+                max_cost_usd=1,
+                max_output_tokens=1800,
+            )
+
+            class GenericErrorClient(FakeGenerationClient):
+                def __init__(self, deep_model):
+                    super().__init__()
+                    self.deep_model = deep_model
+                    self.models = []
+
+                async def chat_json(self, **kwargs):
+                    model = kwargs.get("model")
+                    self.models.append(model)
+                    if model == self.deep_model:
+                        raise OpenRouterError(
+                            "No endpoints found that can handle the requested parameters. "
+                            "To learn more about provider routing, visit: "
+                            "https://openrouter.ai/docs/guides/routing/provider-selection (HTTP 404)"
+                        )
+                    return await super().chat_json(**kwargs)
+
+            fake = GenericErrorClient(config.deep_model)
+            builder = GigBuilder(storage, config=config, client=fake)
+
+            async def run():
+                return await builder.generate(
+                    "generic-fallback",
+                    job_id,
+                    mode="deep",
+                    target_gig_url=url,
+                    preferences={"target_buyer": "Marketing teams"},
+                )
+
+            result = asyncio.run(run())
+            self.assertEqual(result["models"]["actual_refinement"], config.primary_model)
+            self.assertTrue(result["warnings"])
+            self.assertIn(config.deep_model, fake.models)
 
     def test_generation_manager_dry_run(self):
         with tempfile.TemporaryDirectory() as directory:

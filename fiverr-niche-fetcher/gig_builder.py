@@ -8,16 +8,16 @@ import re
 from collections import Counter
 from typing import Any, Callable
 
-from ai_analyzer import PROMPT_VERSION, UsageTracker, _maybe_await
+from ai_analyzer import UsageTracker, _maybe_await
 from market_analyzer import ANALYSIS_VERSION
 from openrouter_client import (
-    BudgetExceeded,
-    NoCompatibleEndpoint,
     OpenRouterClient,
     OpenRouterConfig,
+    OpenRouterError,
     Usage,
     estimate_cost,
     estimate_tokens,
+    is_endpoint_error,
 )
 from storage import Storage, utc_now
 
@@ -500,6 +500,46 @@ class GigBuilder:
         )
         return response
 
+    async def _chat_with_model_fallback(
+        self,
+        *,
+        kind: str,
+        preferred_model: str,
+        fallback_model: str | None,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        tracker: UsageTracker,
+        warnings: list[str],
+    ) -> tuple[dict[str, Any], str]:
+        try:
+            result = await self._chat_cached(
+                kind=kind,
+                model=preferred_model,
+                messages=messages,
+                max_tokens=max_tokens,
+                tracker=tracker,
+            )
+            return result, preferred_model
+        except OpenRouterError as exc:
+            if (
+                not is_endpoint_error(exc)
+                or not fallback_model
+                or fallback_model == preferred_model
+            ):
+                raise
+            warnings.append(
+                f"Model {preferred_model} had no compatible endpoint; "
+                f"{kind.replace('_', ' ')} used {fallback_model} instead."
+            )
+            result = await self._chat_cached(
+                kind=f"{kind}_model_fallback",
+                model=fallback_model,
+                messages=messages,
+                max_tokens=max_tokens,
+                tracker=tracker,
+            )
+            return result, fallback_model
+
     def dry_run_plan(
         self,
         job_id: str,
@@ -571,47 +611,36 @@ class GigBuilder:
         if progress:
             await _maybe_await(progress({"stage": "building evidence context", "progress_percent": 10}))
         max_tokens = 1600 if mode == "test" else max(4000, self.config.max_output_tokens)
-        draft = await self._chat_cached(
+        warnings: list[str] = []
+        draft, draft_model = await self._chat_with_model_fallback(
             kind="gig_generation_draft",
-            model=self.config.primary_model,
+            preferred_model=self.config.primary_model,
+            fallback_model=self.config.deep_model,
             messages=self._messages(context),
             max_tokens=max_tokens,
             tracker=tracker,
+            warnings=warnings,
         )
         validation = validate_generated_gig(draft)
         final = draft
         refinement_model: str | None = None
-        warnings: list[str] = []
         if progress:
             await _maybe_await(progress({"stage": "validating draft", "progress_percent": 65, **tracker.to_dict()}))
         if mode == "deep":
             refinement_messages = self._refinement_messages(context, draft, validation)
-            try:
-                refinement_model = self.config.deep_model
-                final = await self._chat_cached(
-                    kind="gig_generation_refinement",
-                    model=refinement_model,
-                    messages=refinement_messages,
-                    max_tokens=max(4000, self.config.max_output_tokens),
-                    tracker=tracker,
-                )
-            except NoCompatibleEndpoint:
-                # A premium model can be available on OpenRouter while none of
-                # its current provider endpoints accept the requested output
-                # parameters. Preserve the successful draft and refine it with
-                # the known-working primary model instead of failing the run.
-                refinement_model = self.config.primary_model
-                warnings.append(
-                    f"Deep model {self.config.deep_model} had no compatible endpoint; "
-                    f"refinement used {refinement_model} instead."
-                )
-                final = await self._chat_cached(
-                    kind="gig_generation_refinement_primary_fallback",
-                    model=refinement_model,
-                    messages=refinement_messages,
-                    max_tokens=max(4000, self.config.max_output_tokens),
-                    tracker=tracker,
-                )
+            # A premium model can be available on OpenRouter while none of
+            # its current provider endpoints accept the requested output
+            # parameters. Preserve the successful draft and refine it with
+            # the known-working primary model instead of failing the run.
+            final, refinement_model = await self._chat_with_model_fallback(
+                kind="gig_generation_refinement",
+                preferred_model=self.config.deep_model,
+                fallback_model=draft_model or self.config.primary_model,
+                messages=refinement_messages,
+                max_tokens=max(4000, self.config.max_output_tokens),
+                tracker=tracker,
+                warnings=warnings,
+            )
             validation = validate_generated_gig(final)
         if progress:
             await _maybe_await(progress({"stage": "finalizing assets", "progress_percent": 95, **tracker.to_dict()}))
@@ -624,7 +653,8 @@ class GigBuilder:
             "mode": mode,
             "provider": "openrouter",
             "models": {
-                "draft": self.config.primary_model,
+                "requested_draft": self.config.primary_model,
+                "draft": draft_model,
                 "requested_refinement": self.config.deep_model if mode == "deep" else None,
                 "actual_refinement": refinement_model,
             },
@@ -739,5 +769,11 @@ def generation_markdown(result: dict[str, Any]) -> str:
                 "",
             ]
         )
+    script = visual.get("video_script") or {}
+    if isinstance(script, dict) and any(script.values()):
+        lines.extend(["## Video Script", ""])
+        for key in ("hook", "problem", "solution", "proof", "cta"):
+            if script.get(key):
+                lines.extend([f"### {key.title()}", script[key], ""])
     lines.extend(["## Deterministic Validation", "", "```json", json.dumps(result.get("validation") or {}, ensure_ascii=False, indent=2), "```"])
     return "\n".join(str(line) for line in lines)

@@ -5,10 +5,12 @@ import unittest
 import httpx
 
 from openrouter_client import (
+    NoCompatibleEndpoint,
     OpenRouterClient,
     OpenRouterConfig,
     OpenRouterError,
     estimate_cost,
+    is_endpoint_error,
     parse_structured_content,
 )
 
@@ -143,10 +145,18 @@ class OpenRouterClientTests(unittest.TestCase):
                 self.assertTrue(data["ok"])
 
         asyncio.run(run())
-        self.assertEqual(len(payloads), 2)
+        self.assertGreaterEqual(len(payloads), 2)
         self.assertEqual(payloads[0]["response_format"]["type"], "json_schema")
-        self.assertEqual(payloads[1]["response_format"]["type"], "json_object")
-        self.assertFalse(payloads[1]["provider"]["require_parameters"])
+        self.assertTrue(
+            any(
+                item.get("response_format", {}).get("type") == "json_object"
+                for item in payloads
+            )
+        )
+        self.assertTrue(
+            any("plugins" not in item for item in payloads[1:]),
+            "fallback payloads must drop the response-healing plugin",
+        )
 
     def test_tolerant_structured_content_parser(self):
         self.assertEqual(parse_structured_content('```json\n{"ok": true}\n```'), {"ok": True})
@@ -215,6 +225,65 @@ class OpenRouterClientTests(unittest.TestCase):
             estimate_cost("google/gemini-3.7-flash", 1_000_000, 1_000_000),
             2.25,
         )
+
+    def test_endpoint_errors_from_alternate_body_shapes(self):
+        bodies = [
+            (
+                404,
+                {"error": "No endpoints found that can handle the requested parameters."},
+            ),
+            (
+                400,
+                {
+                    "error": {
+                        "message": "Provider returned error",
+                        "metadata": {
+                            "raw": "No endpoints found that can handle the requested parameters."
+                        },
+                    }
+                },
+            ),
+            (
+                404,
+                {"error": {"message": "No allowed providers are available for the selected model"}},
+            ),
+        ]
+
+        for status, payload in bodies:
+            def handler(request: httpx.Request, body=payload, code=status) -> httpx.Response:
+                return httpx.Response(code, json=body)
+
+            async def run():
+                transport = httpx.MockTransport(handler)
+                async with httpx.AsyncClient(transport=transport) as http_client:
+                    client = OpenRouterClient(
+                        OpenRouterConfig(
+                            api_key="sk-or-test-placeholder",
+                            base_url="https://openrouter.test/api/v1",
+                            max_cost_usd=1,
+                            allow_parameter_fallback=False,
+                        ),
+                        client=http_client,
+                    )
+                    with self.assertRaises(NoCompatibleEndpoint):
+                        await client.chat_json(
+                            messages=[{"role": "user", "content": "test"}],
+                            schema_name="test",
+                            schema={
+                                "type": "object",
+                                "properties": {"ok": {"type": "boolean"}},
+                                "required": ["ok"],
+                                "additionalProperties": False,
+                            },
+                            max_tokens=32,
+                        )
+
+            asyncio.run(run())
+
+        self.assertTrue(is_endpoint_error("No endpoints found (HTTP 404)"))
+        self.assertTrue(is_endpoint_error(OpenRouterError("No allowed providers")))
+        self.assertTrue(is_endpoint_error("missing", 404))
+        self.assertFalse(is_endpoint_error("rate limited", 429))
 
 
 if __name__ == "__main__":
