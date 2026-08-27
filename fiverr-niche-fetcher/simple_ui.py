@@ -196,7 +196,7 @@ async function runWorkflow(inputs,resume){
       if(s.status==='completed'){
         const g=await api('/api/simple-workflows/'+wid+'/result');
         setProgress(100,'Your gig is ready','Review and copy each section into Fiverr.','ready');
-        await sleep(280);renderResult(g,{markdown_url:s.markdown_url});
+        await sleep(280);renderResult(g,{markdown_url:s.markdown_url,job_id:s.job_id});
         currentState=null;saveState();$('progress').classList.remove('show');$('result').classList.add('show');
         window.scrollTo({top:0,behavior:'smooth'});return
       }
@@ -211,10 +211,96 @@ async function copy(text,b){
   try{if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(text);else{const a=document.createElement('textarea');a.value=text;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();document.execCommand('copy');a.remove()}if(b){b.textContent='Copied';b.classList.add('copied');setTimeout(()=>{b.textContent='Copy';b.classList.remove('copied')},1300)}}catch{if(b)b.textContent='Select manually'}
 }
 function out(title,content){const box=document.createElement('section');box.className='output';const h=document.createElement('div');h.className='output-head';const t=document.createElement('h3');t.textContent=title;h.append(t,copyBtn(content));const b=document.createElement('div');b.className='output-content';b.textContent=content;box.append(h,b);return box}
+async function fetchHealth(jobId){
+  if(!jobId) return null;
+  try{
+    const analysis = await api('/api/jobs/'+jobId+'/analysis');
+    return analysis.market_health||null;
+  }catch{return null}
+}
+function healthCard(label,value,sub){
+  const div=document.createElement('div');div.className='output';div.style.padding='14px';
+  const h=document.createElement('div');h.className='output-head';h.style.margin='0';
+  const t=document.createElement('h3');t.textContent=label;h.appendChild(t);
+  const v=document.createElement('div');v.className='output-content';v.style.fontSize='22px';v.style.fontWeight='700';v.textContent=value!=null&&value!==''?value:'—';
+  div.append(h,v);
+  if(sub){const s=document.createElement('small');s.style.color='var(--muted)';s.textContent=sub;div.appendChild(s)}
+  return div;
+}
+async function renderHealthSection(root,jobId){
+  const box=document.createElement('section');box.className='output';box.style.background='#f8fafc';
+  const head=document.createElement('div');head.className='output-head';
+  const title=document.createElement('h3');title.textContent='Market Health - Active vs Dead Gigs';
+  head.appendChild(title); box.appendChild(head);
+  const loading=document.createElement('div');loading.className='output-content';loading.textContent='Loading active gigs analysis...';box.appendChild(loading);
+  root.appendChild(box);
+  const health = await fetchHealth(jobId);
+  loading.remove();
+  if(!health||!health.summary){
+    const empty=document.createElement('div');empty.className='output-content';empty.textContent='Health data not available yet. Open Lab > Health tab for details.';
+    box.appendChild(empty);return;
+  }
+  const s=health.summary;
+  const grid=document.createElement('div');grid.style.display='grid';grid.style.gridTemplateColumns='repeat(auto-fit,minmax(160px,1fr))';grid.style.gap='10px';grid.style.padding='12px';
+  const cards=[
+    ['Total Fiverr Results',s.total_fiverr_results,'Fiverr shows'],
+    ['Sampled Gigs',s.sampled_gigs,'Crawled'],
+    ['Active Gigs',s.active_gigs,'Fetch success = alive'],
+    ['Dead Failed',s.dead_fetch_failed,'404/paused'],
+    ['Online Now',s.online_now,'Seller online'],
+    ['Offline',s.offline],
+    ['With Reviews',s.with_reviews],
+    ['No Reviews',s.no_reviews,'Dead risk'],
+    ['Fully Active',s.fully_active,'Online + Recent <=30d'],
+    ['No Activity Dead',s.no_activity_dead,'No reviews+offline+old'],
+    ['Recent 7d',s.recent_7d,'Last delivery <=7d'],
+    ['Recent 30d',s.recent_30d],
+    ['Dormant 90d+',s.dormant_90d_plus],
+    ['Active Rate %',s.active_rate_pct!=null?s.active_rate_pct+'%':'—'],
+    ['Est. Total Active',s.estimated_total_active,'Estimated from Fiverr total'],
+    ['Est. Total Dead',s.estimated_total_dead_no_activity],
+  ];
+  for(const [label,val,sub] of cards){
+    const c=document.createElement('div');c.style.background='white';c.style.border='1px solid var(--line)';c.style.borderRadius='10px';c.style.padding='10px';
+    const l=document.createElement('small');l.style.display='block';l.style.color='var(--muted)';l.textContent=label;
+    const v=document.createElement('strong');v.style.fontSize='18px';v.textContent=val!=null?val:'—';
+    c.append(l,v);
+    if(sub){const su=document.createElement('div');su.style.fontSize='11px';su.style.color='var(--faint)';su.textContent=sub;c.appendChild(su)}
+    grid.appendChild(c);
+  }
+  box.appendChild(grid);
+  if(health.delivery_buckets&&health.delivery_buckets.length){
+    const db=document.createElement('div');db.className='output-content';
+    const h3=document.createElement('h4');h3.textContent='Delivery Buckets';db.appendChild(h3);
+    for(const b of health.delivery_buckets){
+      const row=document.createElement('div');row.style.display='flex';row.style.justifyContent='space-between';row.style.fontSize='13px';row.style.padding='4px 0';row.style.borderBottom='1px solid #eee';
+      row.innerHTML='<span>'+b.label+'</span><span><b>'+b.count+'</b> ('+b.share_pct+'%)</span>';
+      db.appendChild(row);
+    }
+    box.appendChild(db);
+  }
+  if(health.dead_reasons&&health.dead_reasons.length){
+    const dr=document.createElement('div');dr.className='output-content';
+    const h3=document.createElement('h4');h3.textContent='Dead Reasons';dr.appendChild(h3);
+    for(const r of health.dead_reasons){
+      const row=document.createElement('div');row.style.display='flex';row.style.justifyContent='space-between';row.style.fontSize='13px';row.style.padding='4px 0';row.style.borderBottom='1px solid #eee';
+      row.innerHTML='<span>'+r.reason+'</span><span><b>'+r.count+'</b> ('+r.share_pct+'%)</span>';
+      dr.appendChild(row);
+    }
+    box.appendChild(dr);
+  }
+  const link=document.createElement('div');link.className='output-content';link.innerHTML='<a href=\"/advanced\" target=\"_blank\" style=\"color:var(--green2)\">Open Lab > Health tab for full tables, charts and CSV export</a>';
+  box.appendChild(link);
+}
+
 function renderResult(result,run){
   const root=$('resultBody');root.replaceChildren();
   if(result.dry_run){root.append(out('Dry run plan',JSON.stringify(result,null,2)));return}
   const f=result.final||{},gig=f.recommended_gig||{},visual=f.visual_system||{};
+  // Health first if jobId available
+  if(run.job_id){
+    renderHealthSection(root,run.job_id);
+  }
   root.append(out('Title',gig.title||''));
   const tb=document.createElement('section');tb.className='output';
   const th=document.createElement('div');th.className='output-head';
