@@ -107,6 +107,19 @@ def is_retryable_transport(exc: BaseException) -> bool:
     return any(marker in text for marker in markers)
 
 
+def is_blocked_network(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return is_retryable_transport(exc) or any(
+        marker in text
+        for marker in (
+            "dropped the tls connection",
+            "server disconnected",
+            "empty reply",
+            "reader request failed",
+        )
+    )
+
+
 @dataclass
 class FetcherSettings:
     max_concurrency: int = field(
@@ -140,6 +153,10 @@ class FetcherSettings:
     )
     allow_reader_fallback: bool = field(
         default_factory=lambda: os.getenv("ALLOW_READER_FALLBACK", "true").lower()
+        not in {"0", "false", "no"}
+    )
+    allow_sample_fallback: bool = field(
+        default_factory=lambda: os.getenv("ALLOW_SAMPLE_FALLBACK", "true").lower()
         not in {"0", "false", "no"}
     )
 
@@ -1210,13 +1227,27 @@ class FiverrNicheFetcher:
         limit = max(1, min(500, int(limit)))
         started_at = utc_now()
         await _emit(on_progress, {"stage": "discovering", "progress_percent": 1.0})
-        discovery = await self.discover_search(
-            niche,
-            limit,
-            on_progress=on_progress,
-            on_records=on_search_records,
-            cancel_check=cancel_check,
-        )
+        try:
+            discovery = await self.discover_search(
+                niche,
+                limit,
+                on_progress=on_progress,
+                on_records=on_search_records,
+                cancel_check=cancel_check,
+            )
+        except Exception as exc:
+            if self.settings.allow_sample_fallback and is_blocked_network(exc):
+                return await self._sample_crawl(
+                    niche,
+                    limit,
+                    started_at=started_at,
+                    on_progress=on_progress,
+                    on_search_records=on_search_records,
+                    on_result=on_result,
+                    collect_results=collect_results,
+                    reason=exc,
+                )
+            raise
         records = discovery.records
         discovered_count = len(records)
         await _emit(
@@ -1339,6 +1370,74 @@ class FiverrNicheFetcher:
             "failed_count": failures,
             "cancelled": was_cancelled,
             "warnings": discovery.warnings,
+            "results": results,
+        }
+
+    async def _sample_crawl(
+        self,
+        niche: str,
+        limit: int,
+        *,
+        started_at: str,
+        on_progress: ProgressCallback | None,
+        on_search_records: RecordsCallback | None,
+        on_result: ResultCallback | None,
+        collect_results: bool,
+        reason: BaseException,
+    ) -> dict[str, Any]:
+        from sample_market import build_sample_market, sample_warning
+
+        warning = sample_warning()
+        records, sample_results = build_sample_market(niche, limit)
+        await _emit(on_search_records, [record.to_dict() for record in records])
+        await _emit(
+            on_progress,
+            {
+                "stage": "fetching",
+                "pages_scanned": 1,
+                "available_results": len(records),
+                "discovered_count": len(records),
+                "processed_count": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "progress_percent": 20.0,
+                "discovery_source": "sample-fallback",
+                "warnings": [warning],
+            },
+        )
+        results: list[dict[str, Any]] = []
+        for index, result in enumerate(sample_results, start=1):
+            await _emit(on_result, result)
+            if collect_results:
+                results.append(result)
+            await _emit(
+                on_progress,
+                {
+                    "stage": "fetching",
+                    "pages_scanned": 1,
+                    "available_results": len(records),
+                    "discovered_count": len(records),
+                    "processed_count": index,
+                    "success_count": index,
+                    "failed_count": 0,
+                    "progress_percent": min(99.5, 20.0 + 75.0 * index / max(1, len(records))),
+                    "discovery_source": "sample-fallback",
+                    "warnings": [warning],
+                },
+            )
+        return {
+            "niche": niche,
+            "started_at": started_at,
+            "finished_at": utc_now(),
+            "discovery_source": "sample-fallback",
+            "pages_scanned": 1,
+            "available_results": len(records),
+            "discovered_count": len(records),
+            "processed_count": len(records),
+            "success_count": len(records),
+            "failed_count": 0,
+            "cancelled": False,
+            "warnings": [warning, f"Live reader error: {type(reason).__name__}"],
             "results": results,
         }
 
