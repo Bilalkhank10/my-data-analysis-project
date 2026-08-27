@@ -11,7 +11,7 @@ from typing import Any, Iterable
 from fiverr_metadata import listing_quality
 from storage import Storage, utc_now
 
-ANALYSIS_VERSION = "phase2-v1"
+ANALYSIS_VERSION = "phase2-v2"
 TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+.#-]*", re.I)
 STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "for",
@@ -138,6 +138,82 @@ def _normalize_feature(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _parse_last_delivery_days(text: str | None) -> int | None:
+    """Parse Fiverr last_delivery like '1 day ago', '2 weeks ago', 'about 3 hours ago' into days."""
+    if not text:
+        return None
+    t = text.lower().strip()
+    # Handle 'about' etc
+    # Extract number + unit
+    num_match = re.search(r"(\d+)\s*(minute|hour|day|week|month|year)", t)
+    if not num_match:
+        if re.search(r"\ba\s+day\b", t) or "a day ago" in t:
+            return 1
+        if re.search(r"\ban?\s+hour\b", t) or "an hour ago" in t:
+            return 0
+        if "yesterday" in t:
+            return 1
+        if "today" in t or "hour" in t or "minute" in t:
+            return 0
+        # Patterns like "1 week" without ago
+        alt = re.search(r"(\d+)\s*(week|month|year|day)", t)
+        if alt:
+            num = int(alt.group(1))
+            unit = alt.group(2)
+            if "day" in unit:
+                return num
+            if "week" in unit:
+                return num * 7
+            if "month" in unit:
+                return num * 30
+            if "year" in unit:
+                return num * 365
+        return None
+    num = int(num_match.group(1))
+    unit = num_match.group(2)
+    if "minute" in unit or "hour" in unit:
+        return 0
+    if "day" in unit:
+        return num
+    if "week" in unit:
+        return num * 7
+    if "month" in unit:
+        return num * 30
+    if "year" in unit:
+        return num * 365
+    return None
+
+
+def _classify_gig_health(
+    detail_status: str,
+    seller_online: bool,
+    review_count: int,
+    last_days: int | None,
+) -> tuple[str, str]:
+    """Return (status_label, dead_reason)."""
+    if detail_status == "failed":
+        return "dead_fetch_failed", "Fetch failed / Deleted / Paused gig"
+    if review_count == 0 and not seller_online and (last_days is None or last_days > 90):
+        return "dead_no_activity", "No reviews + Offline + Old/Unknown delivery"
+    if review_count == 0 and last_days is None:
+        return "dead_no_activity", "No reviews + No delivery history"
+    if last_days is not None and last_days > 180 and review_count == 0:
+        return "dead_no_activity", "No reviews + Last delivery >180 days"
+    if review_count == 0 and not seller_online:
+        return "inactive", "No reviews + Seller offline"
+    if last_days is not None and last_days > 90:
+        return "dormant", f"Last delivery {last_days} days ago"
+    if not seller_online and review_count > 0:
+        return "partially_active", "Has reviews but seller offline"
+    if seller_online and last_days is not None and last_days <= 30:
+        return "fully_active", ""
+    if seller_online:
+        return "active", "Seller online"
+    if review_count > 0:
+        return "active", "Has reviews, seller offline but gig alive"
+    return "unknown", ""
+
+
 def _flatten(prefix: str, value: Any, rows: list[dict[str, Any]]) -> None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -180,6 +256,7 @@ class MarketAnalyzer:
             review_internal,
             pricing,
         )
+        market_health = self._market_health(job, competitors, documents)
         quality_rows = [
             listing_quality({**competitor, **detail}) for competitor, detail in documents
         ]
@@ -213,6 +290,7 @@ class MarketAnalyzer:
             "competitors": competitors,
             "reviews": reviews,
             "market_gaps": gaps,
+            "market_health": market_health,
             "listing_quality": listing,
         }
         return analysis
@@ -239,6 +317,13 @@ class MarketAnalyzer:
             level = detail.get("seller_level") or search.get("card_seller_level")
             rank = search.get("global_position")
             packages = detail.get("packages") or []
+            # last_delivery raw
+            last_delivery_raw = detail.get("last_delivery")
+            last_days = _parse_last_delivery_days(last_delivery_raw)
+            detail_status = "failed" if detail.get("error") else "success" if detail else "not_fetched"
+            seller_online = bool(search.get("seller_online"))
+            rc = int(_number(review_count) or 0)
+            health_status, dead_reason = _classify_gig_health(detail_status, seller_online, rc, last_days)
             output.append(
                 {
                     "url": url,
@@ -253,10 +338,10 @@ class MarketAnalyzer:
                     "page_number": search.get("page_number"),
                     "page_position": search.get("page_position"),
                     "is_sponsored": bool(search.get("is_sponsored")),
-                    "seller_online": bool(search.get("seller_online")),
+                    "seller_online": seller_online,
                     "price": _rounded(_number(price)),
                     "rating": _rounded(_number(rating)),
-                    "review_count": int(_number(review_count) or 0),
+                    "review_count": rc,
                     "badges": search.get("badges") or [],
                     "thumbnail_url": search.get("thumbnail_url"),
                     "has_video": bool(detail.get("has_video")),
@@ -267,7 +352,11 @@ class MarketAnalyzer:
                     "hourly_rate_usd": _rounded(_number(detail.get("hourly_rate_usd"))),
                     "category_path": detail.get("category_path") or [],
                     "rank_band": _rank_band(int(rank) if rank is not None else None),
-                    "detail_status": "failed" if detail.get("error") else "success" if detail else "not_fetched",
+                    "detail_status": detail_status,
+                    "last_delivery_raw": last_delivery_raw,
+                    "last_delivery_days": last_days,
+                    "health_status": health_status,
+                    "dead_reason": dead_reason,
                 }
             )
         return sorted(output, key=lambda item: item.get("global_position") or 999999)
@@ -312,6 +401,205 @@ class MarketAnalyzer:
             "seller_levels": _distribution(item.get("seller_level") or "Unknown" for item in competitors),
             "seller_countries": _distribution(item.get("seller_country") or "Unknown" for item in competitors),
             "rank_bands": _distribution(item.get("rank_band") for item in competitors),
+        }
+
+    @staticmethod
+    def _market_health(
+        job: dict[str, Any],
+        competitors: list[dict[str, Any]],
+        documents: list[tuple[dict[str, Any], dict[str, Any]]],
+    ) -> dict[str, Any]:
+        count = len(competitors)
+        if count == 0:
+            return {
+                "summary": {
+                    "total_fiverr_results": job.get("available_results"),
+                    "sampled_gigs": 0,
+                    "active_gigs": 0,
+                    "dead_fetch_failed": 0,
+                    "online_now": 0,
+                    "offline": 0,
+                    "with_reviews": 0,
+                    "no_reviews": 0,
+                    "recent_7d": 0,
+                    "recent_30d": 0,
+                    "dormant_90d_plus": 0,
+                    "unknown_delivery": 0,
+                    "no_activity_dead": 0,
+                    "fully_active": 0,
+                    "partially_active": 0,
+                    "inactive": 0,
+                    "active_rate_pct": 0,
+                    "online_rate_pct": 0,
+                    "no_review_rate_pct": 0,
+                    "estimated_total_active": 0,
+                },
+                "dead_reasons": [],
+                "delivery_buckets": [],
+                "by_level": [],
+                "by_country": [],
+                "price_comparison": {},
+                "details": [],
+            }
+
+        total_fiverr = job.get("available_results")
+        active_gigs = sum(1 for c in competitors if c.get("detail_status") == "success")
+        dead_fetch_failed = sum(1 for c in competitors if c.get("detail_status") == "failed")
+        online_now = sum(1 for c in competitors if c.get("seller_online"))
+        offline = count - online_now
+        with_reviews = sum(1 for c in competitors if (c.get("review_count") or 0) > 0)
+        no_reviews = count - with_reviews
+        recent_7d = sum(1 for c in competitors if c.get("last_delivery_days") is not None and c.get("last_delivery_days") <= 7)
+        recent_30d = sum(1 for c in competitors if c.get("last_delivery_days") is not None and c.get("last_delivery_days") <= 30)
+        dormant_90 = sum(1 for c in competitors if c.get("last_delivery_days") is not None and c.get("last_delivery_days") > 90)
+        unknown_delivery = sum(1 for c in competitors if c.get("last_delivery_days") is None)
+        no_activity_dead = sum(1 for c in competitors if c.get("health_status") in {"dead_no_activity", "dead_fetch_failed"})
+        fully_active = sum(1 for c in competitors if c.get("health_status") == "fully_active")
+        partially_active = sum(1 for c in competitors if c.get("health_status") == "partially_active")
+        inactive = sum(1 for c in competitors if c.get("health_status") == "inactive")
+        dormant = sum(1 for c in competitors if c.get("health_status") == "dormant")
+        active_rate = _rounded(100 * active_gigs / count, 1) if count else 0
+        online_rate = _rounded(100 * online_now / count, 1) if count else 0
+        no_review_rate = _rounded(100 * no_reviews / count, 1) if count else 0
+        estimated_total_active = None
+        if total_fiverr and active_rate:
+            estimated_total_active = int(total_fiverr * (active_gigs / count))
+
+        # Dead reasons breakdown
+        dead_reasons_counter = Counter(c.get("dead_reason") for c in competitors if c.get("dead_reason"))
+        dead_reasons = [
+            {"reason": reason, "count": cnt, "share_pct": _rounded(100 * cnt / count, 1)}
+            for reason, cnt in dead_reasons_counter.most_common()
+        ]
+
+        # Delivery buckets
+        buckets = [
+            ("<1 day (today)", lambda d: d is not None and d == 0),
+            ("1-7 days", lambda d: d is not None and 1 <= d <= 7),
+            ("8-30 days", lambda d: d is not None and 8 <= d <= 30),
+            ("31-90 days", lambda d: d is not None and 31 <= d <= 90),
+            ("90+ days dormant", lambda d: d is not None and d > 90),
+            ("Unknown", lambda d: d is None),
+        ]
+        delivery_buckets = []
+        for label, fn in buckets:
+            cnt = sum(1 for c in competitors if fn(c.get("last_delivery_days")))
+            delivery_buckets.append({"label": label, "count": cnt, "share_pct": _rounded(100 * cnt / count, 1) if count else 0})
+
+        # By seller level
+        levels: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for c in competitors:
+            levels[c.get("seller_level") or "Unknown"].append(c)
+        by_level = []
+        for lvl, items in levels.items():
+            tot = len(items)
+            by_level.append({
+                "level": lvl,
+                "total": tot,
+                "active": sum(1 for x in items if x.get("detail_status") == "success"),
+                "dead_fetch_failed": sum(1 for x in items if x.get("detail_status") == "failed"),
+                "online": sum(1 for x in items if x.get("seller_online")),
+                "offline": tot - sum(1 for x in items if x.get("seller_online")),
+                "no_reviews": sum(1 for x in items if (x.get("review_count") or 0) == 0),
+                "with_reviews": sum(1 for x in items if (x.get("review_count") or 0) > 0),
+                "recent_30d": sum(1 for x in items if x.get("last_delivery_days") is not None and x.get("last_delivery_days") <= 30),
+                "dormant_90d": sum(1 for x in items if x.get("last_delivery_days") is not None and x.get("last_delivery_days") > 90),
+                "no_activity_dead": sum(1 for x in items if x.get("health_status") in {"dead_no_activity", "dead_fetch_failed"}),
+                "fully_active": sum(1 for x in items if x.get("health_status") == "fully_active"),
+                "share_pct": _rounded(100 * tot / count, 1) if count else 0,
+                "median_price": numeric_stats(x.get("price") for x in items)["median"],
+            })
+        by_level.sort(key=lambda x: -x["total"])
+
+        # By country
+        countries: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for c in competitors:
+            countries[c.get("seller_country") or "Unknown"].append(c)
+        by_country = []
+        for country, items in countries.items():
+            tot = len(items)
+            by_country.append({
+                "country": country,
+                "total": tot,
+                "active": sum(1 for x in items if x.get("detail_status") == "success"),
+                "online": sum(1 for x in items if x.get("seller_online")),
+                "no_reviews": sum(1 for x in items if (x.get("review_count") or 0) == 0),
+                "recent_30d": sum(1 for x in items if x.get("last_delivery_days") is not None and x.get("last_delivery_days") <= 30),
+                "share_pct": _rounded(100 * tot / count, 1) if count else 0,
+                "median_price": numeric_stats(x.get("price") for x in items)["median"],
+            })
+        by_country.sort(key=lambda x: -x["total"])
+        by_country = by_country[:30]
+
+        # Price comparison active vs dead
+        active_prices = [c.get("price") for c in competitors if c.get("health_status") not in {"dead_fetch_failed", "dead_no_activity"} and c.get("price") is not None]
+        dead_prices = [c.get("price") for c in competitors if c.get("health_status") in {"dead_fetch_failed", "dead_no_activity"} and c.get("price") is not None]
+        online_prices = [c.get("price") for c in competitors if c.get("seller_online") and c.get("price") is not None]
+        no_review_prices = [c.get("price") for c in competitors if (c.get("review_count") or 0) == 0 and c.get("price") is not None]
+
+        price_comparison = {
+            "active": numeric_stats(active_prices),
+            "dead_no_activity": numeric_stats(dead_prices),
+            "online": numeric_stats(online_prices),
+            "no_reviews": numeric_stats(no_review_prices),
+        }
+
+        # Detailed rows for export/table
+        details = []
+        for c in competitors:
+            details.append({
+                "url": c.get("url"),
+                "title": c.get("title"),
+                "seller": c.get("seller"),
+                "seller_username": c.get("seller_username"),
+                "seller_level": c.get("seller_level"),
+                "seller_country": c.get("seller_country"),
+                "global_position": c.get("global_position"),
+                "price": c.get("price"),
+                "rating": c.get("rating"),
+                "review_count": c.get("review_count"),
+                "seller_online": c.get("seller_online"),
+                "last_delivery_raw": c.get("last_delivery_raw"),
+                "last_delivery_days": c.get("last_delivery_days"),
+                "detail_status": c.get("detail_status"),
+                "health_status": c.get("health_status"),
+                "dead_reason": c.get("dead_reason"),
+                "is_sponsored": c.get("is_sponsored"),
+                "has_video": c.get("has_video"),
+            })
+        details.sort(key=lambda x: (x.get("global_position") or 999999))
+
+        return {
+            "summary": {
+                "total_fiverr_results": total_fiverr,
+                "sampled_gigs": count,
+                "active_gigs": active_gigs,
+                "dead_fetch_failed": dead_fetch_failed,
+                "online_now": online_now,
+                "offline": offline,
+                "with_reviews": with_reviews,
+                "no_reviews": no_reviews,
+                "recent_7d": recent_7d,
+                "recent_30d": recent_30d,
+                "dormant_90d_plus": dormant_90,
+                "unknown_delivery": unknown_delivery,
+                "no_activity_dead": no_activity_dead,
+                "fully_active": fully_active,
+                "partially_active": partially_active,
+                "inactive": inactive,
+                "dormant": dormant,
+                "active_rate_pct": active_rate,
+                "online_rate_pct": online_rate,
+                "no_review_rate_pct": no_review_rate,
+                "estimated_total_active": estimated_total_active,
+                "estimated_total_dead_no_activity": (total_fiverr - estimated_total_active) if total_fiverr and estimated_total_active is not None else None,
+            },
+            "dead_reasons": dead_reasons,
+            "delivery_buckets": delivery_buckets,
+            "by_level": by_level,
+            "by_country": by_country,
+            "price_comparison": price_comparison,
+            "details": details,
         }
 
     @staticmethod
@@ -634,8 +922,6 @@ class MarketAnalyzer:
                     normalized = _normalize_feature(str(feature))
                     if not normalized:
                         continue
-                    # Blank cells mean the public renderer did not expose a value;
-                    # do not incorrectly treat them as confirmed inclusion.
                     if value in (None, "", False):
                         continue
                     feature_tier_counts[normalized][tier] += 1
@@ -865,4 +1151,24 @@ class MarketAnalyzer:
                 for item in values:
                     rows.append({"gap_section": gap_type, **item})
             return rows
+        if section == "health":
+            health = analysis.get("market_health") or {}
+            return list(health.get("details") or [])
+        if section == "health_summary":
+            health = analysis.get("market_health") or {}
+            rows = []
+            _flatten("", health.get("summary") or {}, rows)
+            return rows
+        if section == "health_levels":
+            health = analysis.get("market_health") or {}
+            return list(health.get("by_level") or [])
+        if section == "health_countries":
+            health = analysis.get("market_health") or {}
+            return list(health.get("by_country") or [])
+        if section == "health_delivery":
+            health = analysis.get("market_health") or {}
+            return list(health.get("delivery_buckets") or [])
+        if section == "health_reasons":
+            health = analysis.get("market_health") or {}
+            return list(health.get("dead_reasons") or [])
         return []
