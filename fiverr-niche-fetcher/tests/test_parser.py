@@ -1,12 +1,15 @@
 import unittest
 
 from fiverr_fetcher import (
+    is_retryable_transport,
     normalize_gig_url,
     parse_faqs_from_markdown,
     parse_gig_page,
     parse_packages_from_markdown,
     parse_reviews_from_markdown,
     parse_search_page,
+    reader_url,
+    ssl_context,
 )
 
 
@@ -193,6 +196,22 @@ Message Sabir Muhammad
         self.assertIn("Basic $30", record.packages_text)
         self.assertIn("Looker Studio", record.related_tags)
         self.assertEqual(len(record.media_urls), 1)
+
+    def test_reader_url_and_tls_helpers(self):
+        self.assertEqual(
+            reader_url("https://www.fiverr.com/alpha/gig"),
+            "https://r.jina.ai/https://www.fiverr.com/alpha/gig",
+        )
+        self.assertTrue(reader_url("www.fiverr.com/a/b").startswith("https://r.jina.ai/https://"))
+        context = ssl_context()
+        ignore = getattr(__import__("ssl"), "OP_IGNORE_UNEXPECTED_EOF", 0)
+        if ignore:
+            self.assertTrue(context.options & ignore)
+        self.assertTrue(
+            is_retryable_transport(
+                OSError("TLS/SSL connection has been closed (EOF) (_ssl.c:992)")
+            )
+        )
 
 
 if __name__ == "__main__":

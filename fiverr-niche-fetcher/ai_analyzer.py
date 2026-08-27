@@ -11,12 +11,13 @@ from typing import Any, Callable
 from market_analyzer import MarketAnalyzer
 from openrouter_client import (
     BudgetExceeded,
-    NoCompatibleEndpoint,
     OpenRouterClient,
     OpenRouterConfig,
+    OpenRouterError,
     Usage,
     estimate_cost,
     estimate_tokens,
+    is_endpoint_error,
 )
 from storage import Storage, utc_now
 
@@ -449,6 +450,52 @@ class Phase3Analyzer:
         )
         return response
 
+    async def _chat_with_model_fallback(
+        self,
+        *,
+        kind: str,
+        preferred_model: str,
+        fallback_model: str | None,
+        messages: list[dict[str, str]],
+        schema_name: str,
+        schema: dict[str, Any],
+        max_tokens: int,
+        tracker: UsageTracker,
+        warnings: list[str],
+    ) -> tuple[dict[str, Any], str]:
+        try:
+            result = await self._chat_cached(
+                kind=kind,
+                model=preferred_model,
+                messages=messages,
+                schema_name=schema_name,
+                schema=schema,
+                max_tokens=max_tokens,
+                tracker=tracker,
+            )
+            return result, preferred_model
+        except OpenRouterError as exc:
+            if (
+                not is_endpoint_error(exc)
+                or not fallback_model
+                or fallback_model == preferred_model
+            ):
+                raise
+            warnings.append(
+                f"Model {preferred_model} had no compatible endpoint; "
+                f"{kind.replace('_', ' ')} used {fallback_model} instead."
+            )
+            result = await self._chat_cached(
+                kind=f"{kind}_model_fallback",
+                model=fallback_model,
+                messages=messages,
+                schema_name=schema_name,
+                schema=schema,
+                max_tokens=max_tokens,
+                tracker=tracker,
+            )
+            return result, fallback_model
+
     @staticmethod
     def _gig_messages(batch: list[dict[str, Any]]) -> list[dict[str, str]]:
         system = (
@@ -581,16 +628,19 @@ class Phase3Analyzer:
         batch_size = 1 if mode == "test" else self.config.gigs_per_batch
         batches = [compacts[index:index + batch_size] for index in range(0, len(compacts), batch_size)]
         analyses: list[dict[str, Any]] = []
+        analysis_model = self.config.primary_model
         for index, batch in enumerate(batches):
             max_tokens = 600 if mode == "test" else max(3000, self.config.max_output_tokens)
-            result = await self._chat_cached(
+            result, analysis_model = await self._chat_with_model_fallback(
                 kind="gig_analysis",
-                model=self.config.primary_model,
+                preferred_model=self.config.primary_model,
+                fallback_model=self.config.deep_model,
                 messages=self._gig_messages(batch),
                 schema_name="fiverr_gig_analysis",
                 schema=GIG_ANALYSIS_SCHEMA,
                 max_tokens=max_tokens,
                 tracker=tracker,
+                warnings=warnings,
             )
             analyses.extend(result.get("gig_analyses") or [])
             if progress:
@@ -621,8 +671,8 @@ class Phase3Analyzer:
                 max_tokens=800 if mode == "test" else min(2500, self.config.max_output_tokens),
                 tracker=tracker,
             )
-        except NoCompatibleEndpoint:
-            if summary_model == self.config.primary_model:
+        except OpenRouterError as exc:
+            if not is_endpoint_error(exc) or summary_model == self.config.primary_model:
                 raise
             summary_model = self.config.primary_model
             warnings.append(
@@ -649,6 +699,7 @@ class Phase3Analyzer:
             "provider": "openrouter",
             "models": {
                 "primary": self.config.primary_model,
+                "actual_primary": analysis_model,
                 "embedding": self.config.embedding_model,
                 "requested_summary": requested_summary_model,
                 "actual_summary": summary_model,

@@ -45,6 +45,46 @@ class BudgetExceeded(OpenRouterError):
     pass
 
 
+_ENDPOINT_MARKERS = (
+    "no endpoints found",
+    "no allowed providers",
+    "no endpoints matching",
+    "matching your data policy",
+)
+
+
+def is_endpoint_error(exc: BaseException | str, status: int | None = None) -> bool:
+    """True when OpenRouter could not route the model/parameter combination."""
+    if isinstance(exc, NoCompatibleEndpoint):
+        return True
+    text = str(exc).lower()
+    if any(marker in text for marker in _ENDPOINT_MARKERS):
+        return True
+    return status == 404
+
+
+def _public_error_text(body: Any) -> str:
+    """Collect a human-readable error from the various OpenRouter body shapes."""
+    parts: list[str] = []
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, str) and error.strip():
+            parts.append(error.strip())
+        elif isinstance(error, dict):
+            message = error.get("message")
+            if message:
+                parts.append(str(message))
+            metadata = error.get("metadata")
+            if isinstance(metadata, dict) and metadata.get("raw"):
+                parts.append(str(metadata["raw"]))
+        top = body.get("message")
+        if top and str(top) not in parts:
+            parts.append(str(top))
+    elif isinstance(body, str) and body.strip():
+        parts.append(body.strip())
+    return " ".join(parts)
+
+
 @dataclass(repr=False)
 class OpenRouterConfig:
     api_key: str
@@ -294,15 +334,22 @@ class OpenRouterClient:
                     # --- Error handling ---
                     message = "OpenRouter request failed"
                     retry_after: float | None = None
+                    body: Any = None
                     try:
                         body = response.json()
-                        public_error = body.get("error") or {}
-                        if isinstance(public_error, dict) and public_error.get("message"):
-                            message = str(public_error["message"])
-                        # OpenRouter sometimes sends Retry-After in the error body
-                        retry_meta = public_error.get("metadata")
+                        extracted = _public_error_text(body)
+                        if extracted:
+                            message = extracted
+                        public_error = body.get("error") if isinstance(body, dict) else None
+                        retry_meta = (
+                            public_error.get("metadata")
+                            if isinstance(public_error, dict)
+                            else None
+                        )
                         if isinstance(retry_meta, dict):
-                            raw = retry_meta.get("retry_after") or body.get("retry_after")
+                            raw = retry_meta.get("retry_after") or (
+                                body.get("retry_after") if isinstance(body, dict) else None
+                            )
                             if raw is not None:
                                 retry_after = float(raw)
                     except Exception:
@@ -318,8 +365,8 @@ class OpenRouterClient:
 
                     public_message = f"{message} (HTTP {response.status_code})"
 
-                    # Non-retryable errors — bail immediately
-                    if response.status_code in {400, 404} and "no endpoints found" in message.lower():
+                    # Non-retryable routing errors — caller may fall back.
+                    if is_endpoint_error(message, response.status_code):
                         raise NoCompatibleEndpoint(public_message)
                     if response.status_code in {401, 403}:
                         raise OpenRouterError(public_message)
@@ -420,14 +467,25 @@ class OpenRouterClient:
         payload_attempts = [strict_payload]
         if self.config.allow_parameter_fallback:
             # Some model/provider combinations exist but do not expose strict
-            # json_schema on any currently routed endpoint. JSON mode still
-            # requests valid JSON while our local parser/validator handles it.
+            # json_schema, the response-healing plugin, or require_parameters
+            # on any currently routed endpoint. Keep falling back until a
+            # provider can actually serve the model.
             payload_attempts.extend(
                 [
                     {
                         **base_payload,
                         "provider": {"require_parameters": False},
-                        "plugins": [{"id": "response-healing"}],
+                        "response_format": {
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": schema_name,
+                                "strict": False,
+                                "schema": schema,
+                            },
+                        },
+                    },
+                    {
+                        **base_payload,
                         "response_format": {"type": "json_object"},
                     },
                     # Last compatibility fallback for a model endpoint that
@@ -444,9 +502,14 @@ class OpenRouterClient:
                     "POST", "/chat/completions", payload=candidate_payload
                 )
                 break
-            except NoCompatibleEndpoint as exc:
-                last_endpoint_error = exc
-                continue
+            except OpenRouterError as exc:
+                if is_endpoint_error(exc):
+                    last_endpoint_error = (
+                        exc if isinstance(exc, NoCompatibleEndpoint)
+                        else NoCompatibleEndpoint(str(exc))
+                    )
+                    continue
+                raise
         if response is None:
             raise last_endpoint_error or NoCompatibleEndpoint(
                 "No compatible OpenRouter endpoint was found."
