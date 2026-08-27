@@ -1,0 +1,4 @@
+# Optional extra for running mcp_server.py.
+# The web app does NOT need this file.
+# Pinned below mcp 2.x, where the stable FastMCP API was renamed.
+mcp>=1.9,<2.0

@@ -9,6 +9,14 @@ Local research-to-action system with four layers:
 3. **Phase 3:** optional OpenRouter semantic audits
 4. **Phase 4:** evidence-led, human-approved Fiverr gig drafts
 
+## MCP server (agent access)
+
+`mcp_server.py` exposes the exact Phase 1 public-crawl pipeline as Model
+Context Protocol tools (`fiverr_search`, `fiverr_gig`, `fiverr_crawl`,
+`fiverr_listing_quality`, `fiverr_field_limits`) so Claude Desktop, Cursor and
+other MCP clients can fetch the same public Fiverr data. See
+**`MCP_SERVER.md`** — requires `pip install -r requirements-mcp.txt`.
+
 ## Critical security rule
 
 Never paste API keys into chat or source code. If a key has been pasted into chat, revoke it and create a new limited-credit key.
