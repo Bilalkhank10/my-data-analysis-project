@@ -71,11 +71,28 @@ SIMPLE_HTML = r"""<!doctype html>
               <small>The URL needs to appear in this market’s crawl for a before/after comparison.</small>
             </div>
           </details>
-          <div class="lbl">Research depth</div>
-          <div class="seg">
-            <input type="radio" name="quality" id="qFast" value="fast"><label for="qFast"><strong>Quick</strong><span>10 competitors</span></label>
-            <input type="radio" name="quality" id="qRecommended" value="recommended" checked><label for="qRecommended"><strong>Recommended</strong><span>25 competitors + intent</span></label>
-            <input type="radio" name="quality" id="qBest" value="best"><label for="qBest"><strong>Best</strong><span>50 competitors + refine</span></label>
+          <div class="depth">
+            <div class="lbl">Research depth</div>
+            <div class="seg">
+              <input type="radio" name="quality" id="qFast" value="fast">
+              <label for="qFast" class="depth-card depth-fast">
+                <i class="depth-dot"></i>
+                <strong>Quick</strong>
+                <span>10 competitors</span>
+              </label>
+              <input type="radio" name="quality" id="qRecommended" value="recommended" checked>
+              <label for="qRecommended" class="depth-card depth-rec">
+                <i class="depth-dot"></i>
+                <strong>Recommended</strong>
+                <span>25 competitors + intent</span>
+              </label>
+              <input type="radio" name="quality" id="qBest" value="best">
+              <label for="qBest" class="depth-card depth-best">
+                <i class="depth-dot"></i>
+                <strong>Best</strong>
+                <span>50 competitors + refine</span>
+              </label>
+            </div>
           </div>
           <button id="createButton" class="btn primary" type="submit">Create draft</button>
           <div id="keyNotice" class="notice">AI isn’t connected. Add a new OpenRouter key to your local <code>.env</code> file, restart, then try again. Lab still supports dry runs.</div>

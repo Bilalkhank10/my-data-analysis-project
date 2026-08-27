@@ -514,6 +514,7 @@ textarea.input { height: auto; min-height: 88px; padding: 12px 13px; resize: ver
   .canvas, .canvas.wide { width: min(100% - 24px, 1040px); }
   .hero { padding: 24px 0 18px; }
   .grid-2, .packages, .seg { grid-template-columns: 1fr; }
+  .depth-card { min-height: 76px; }
   .result-head { flex-direction: column; }
   .result-actions { width: 100%; }
   .result-actions .btn { flex: 1; }
