@@ -97,6 +97,58 @@ that has both requirements files installed (a `.venv` interpreter is ideal).
 
 For HTTP mode use `"type": "http", "url": "http://localhost:8765/mcp"`.
 
+### LobeHub / LobeChat
+
+**Desktop app (easiest — supports stdio):** open LobeHub Desktop →
+**Settings** → **Skill Settings** (on some versions: **Default Agent →
+Plugin Settings**) → **Custom Skills / Custom Plugins** → **Quick Import JSON
+Configuration**, paste:
+
+```json
+{
+  "mcpServers": {
+    "fiverr-niche-fetcher": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["C:\\full\\path\\to\\fiverr-niche-fetcher\\mcp_server.py"],
+      "env": { "REQUEST_DELAY_SECONDS": "2.0" }
+    }
+  }
+}
+```
+
+(use `/full/path/...` on macOS/Linux; best to point `command` at the venv
+interpreter that has both requirements files installed).
+
+**Self-hosted / web version (HTTP only):** start the server in HTTP mode,
+then add a custom plugin of type streamable HTTP:
+
+```bash
+python mcp_server.py --transport streamable-http --host 0.0.0.0 --port 8765
+```
+
+```json
+{
+  "mcpServers": {
+    "fiverr-niche-fetcher": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
+
+If LobeChat runs in Docker, `localhost` is the container — use
+`host.docker.internal:8765` (Mac/Windows) or your host's LAN IP instead.
+
+⚠️ **Timeout:** LobeHub's default MCP tool timeout is ~30 s. `fiverr_search`
+with a small limit is fast, but `fiverr_crawl` can take minutes — raise
+`MCP_TOOL_TIMEOUT` (e.g. `300000`) for self-hosted deployments or keep
+crawl limits small.
+
+**After installing:** enable the server for your agent (**Agent Settings →
+Skills**) and toggle the individual tools you want it to use.
+
 ## Example response (trimmed)
 
 ```json
