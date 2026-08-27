@@ -14,6 +14,7 @@ import inspect
 import json
 import os
 import re
+import ssl
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable
@@ -67,6 +68,43 @@ class CrawlCancelled(FetcherError):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def reader_url(target: str) -> str:
+    """Build a Jina Reader URL for a public page."""
+    target = target.strip()
+    if not target.startswith(("http://", "https://")):
+        target = "https://" + target
+    return f"https://r.jina.ai/{target}"
+
+
+def ssl_context() -> ssl.SSLContext:
+    """TLS context that survives CDNs which skip a graceful close_notify.
+
+    OpenSSL 3 flags that as: TLS/SSL connection has been closed (EOF) (_ssl.c:992).
+    """
+    context = ssl.create_default_context()
+    ignore_eof = getattr(ssl, "OP_IGNORE_UNEXPECTED_EOF", 0)
+    if ignore_eof:
+        context.options |= ignore_eof
+    return context
+
+
+def is_retryable_transport(exc: BaseException) -> bool:
+    if isinstance(exc, (httpx.TransportError, ssl.SSLError, ConnectionError, TimeoutError)):
+        return True
+    text = str(exc).lower()
+    markers = (
+        "ssl",
+        "tls",
+        "eof",
+        "connection reset",
+        "connection aborted",
+        "temporarily unavailable",
+        "broken pipe",
+        "timed out",
+    )
+    return any(marker in text for marker in markers)
 
 
 @dataclass
@@ -968,11 +1006,36 @@ class FiverrNicheFetcher:
 
     @staticmethod
     def _headers() -> dict[str, str]:
-        return {"Accept": "text/markdown", "User-Agent": "Mozilla/5.0"}
+        return {
+            "Accept": "text/markdown",
+            "User-Agent": "Mozilla/5.0 (compatible; GigCraft/1.0)",
+            "X-Return-Format": "markdown",
+            "Connection": "close",
+        }
+
+    def _client_kwargs(self) -> dict[str, Any]:
+        timeout = httpx.Timeout(
+            self.settings.reader_timeout_seconds,
+            connect=20.0,
+            pool=20.0,
+        )
+        return {
+            "timeout": timeout,
+            "follow_redirects": True,
+            "headers": self._headers(),
+            "verify": ssl_context(),
+            "http2": False,
+            "limits": httpx.Limits(
+                max_keepalive_connections=0,
+                max_connections=8,
+                keepalive_expiry=0.1,
+            ),
+        }
 
     async def _get_text(self, client: httpx.AsyncClient, url: str) -> str:
         last_error: Exception | None = None
-        for attempt in range(self.settings.retry_count + 1):
+        attempts = self.settings.retry_count + 1
+        for attempt in range(attempts):
             try:
                 response = await client.get(url)
                 if response.status_code in {429, 500, 502, 503, 504}:
@@ -987,7 +1050,10 @@ class FiverrNicheFetcher:
                 return response.text
             except Exception as exc:
                 last_error = exc
-                if attempt >= self.settings.retry_count:
+                retryable = is_retryable_transport(exc) or isinstance(
+                    exc, (httpx.HTTPStatusError, FetcherError)
+                )
+                if attempt >= attempts - 1 or not retryable:
                     break
                 retry_after = None
                 if isinstance(exc, httpx.HTTPStatusError):
@@ -998,7 +1064,13 @@ class FiverrNicheFetcher:
                     else self.settings.retry_base_delay_seconds * (2**attempt)
                 )
                 await asyncio.sleep(min(float(wait or 1), 30.0))
-        raise FetcherError(f"Reader request failed after retries: {last_error}")
+        public = str(last_error or "unknown network error")
+        if is_retryable_transport(last_error or Exception(public)):
+            public = (
+                "The public reader service dropped the TLS connection. "
+                "This is usually a temporary network/CDN issue — retry the crawl."
+            )
+        raise FetcherError(f"Reader request failed after retries: {public}")
 
     async def discover_search(
         self,
@@ -1021,18 +1093,16 @@ class FiverrNicheFetcher:
         sponsored_count = 0
         warnings: list[str] = []
 
-        timeout = httpx.Timeout(self.settings.reader_timeout_seconds)
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=self._headers()) as client:
+        async with httpx.AsyncClient(**self._client_kwargs()) as client:
             for page_number in range(1, self.settings.max_search_pages + 1):
                 if _cancelled(cancel_check):
                     raise CrawlCancelled("Job cancelled during search discovery.")
                 source = (
-                    f"http://www.fiverr.com/search/gigs?query={query}"
+                    f"https://www.fiverr.com/search/gigs?query={query}"
                     f"&source=top-bar&search_in=everywhere&page={page_number}"
                 )
-                reader_url = f"https://r.jina.ai/{source}"
                 try:
-                    markdown = await self._get_text(client, reader_url)
+                    markdown = await self._get_text(client, reader_url(source))
                 except Exception as exc:
                     if collected:
                         warnings.append(f"Search page {page_number} stopped pagination: {exc}")
@@ -1189,9 +1259,7 @@ class FiverrNicheFetcher:
         failures = 0
         results: list[dict[str, Any]] = []
         counter_lock = asyncio.Lock()
-        timeout = httpx.Timeout(self.settings.reader_timeout_seconds)
-
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=self._headers()) as client:
+        async with httpx.AsyncClient(**self._client_kwargs()) as client:
             async def worker() -> None:
                 nonlocal processed, successes, failures
                 while not queue.empty():
