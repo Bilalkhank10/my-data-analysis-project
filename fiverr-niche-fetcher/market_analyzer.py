@@ -8,6 +8,7 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Any, Iterable
 
+from fiverr_metadata import listing_quality
 from storage import Storage, utc_now
 
 ANALYSIS_VERSION = "phase2-v1"
@@ -179,6 +180,17 @@ class MarketAnalyzer:
             review_internal,
             pricing,
         )
+        quality_rows = [
+            listing_quality({**competitor, **detail}) for competitor, detail in documents
+        ]
+        scores = [row["score"] for row in quality_rows]
+        listing = {
+            "mean_score": _rounded(_mean(scores)),
+            "complete_listings": sum(row["score"] >= 75 for row in quality_rows),
+            "video_ready": sum(bool(detail.get("has_video") or competitor.get("has_video")) for competitor, detail in documents),
+            "note": "Public listing-completeness score, not Fiverr Success Score or CTR.",
+            "rows": quality_rows[:100],
+        }
 
         analysis = {
             "version": ANALYSIS_VERSION,
@@ -201,6 +213,7 @@ class MarketAnalyzer:
             "competitors": competitors,
             "reviews": reviews,
             "market_gaps": gaps,
+            "listing_quality": listing,
         }
         return analysis
 
