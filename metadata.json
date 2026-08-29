@@ -1,0 +1,6 @@
+{
+  "name": "GigCraft",
+  "description": "Premium local studio for Fiverr market research, keyword and health analytics, and copy-ready AI gig drafts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
