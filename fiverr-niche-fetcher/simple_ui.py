@@ -7,15 +7,17 @@ SIMPLE_HTML = r"""<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GigCraft</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,480;8..60,560&display=swap" rel="stylesheet">
-  <meta name="theme-color" content="#f4f3ee">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <meta name="theme-color" content="#f3f5f9">
+  <meta name="color-scheme" content="light">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <div class="scrim" id="scrim"></div>
 <div class="app-shell">
-  <aside class="sidebar">
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu">☰</button>
     <a class="brand" href="/">
       <span class="mark">G</span>
       <div><strong class="brand-name">GigCraft</strong><small class="brand-sub">Studio</small></div>
@@ -27,14 +29,9 @@ SIMPLE_HTML = r"""<!doctype html>
     <div class="side-foot">
       <div class="status-row"><span id="keyDot" class="dot"></span><span id="keyText">Checking AI…</span></div>
     </div>
-  </aside>
+  </header>
 
   <div class="stage">
-    <header class="top">
-      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu">☰</button>
-      <div class="top-title">Draft a Fiverr gig</div>
-    </header>
-
     <main class="canvas">
       <section class="hero" id="hero">
         <h1>What should this gig sell?</h1>
@@ -144,7 +141,7 @@ const $=id=>document.getElementById(id);let aiConfigured=false,currentState=null
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function detailMessage(d,fallback){const x=d&&d.detail;if(!x)return fallback;if(typeof x==='string')return x;if(Array.isArray(x))return x.map(i=>i.msg||i.message||JSON.stringify(i)).join('; ');return x.message||x.msg||JSON.stringify(x)}
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(detailMessage(d,'Request failed: '+r.status));return d}
-$('menuBtn').onclick=()=>document.body.classList.add('nav-open');
+$('menuBtn').onclick=()=>document.body.classList.toggle('nav-open');
 $('scrim').onclick=()=>document.body.classList.remove('nav-open');
 
 function setProgress(pct,title,text,stage){

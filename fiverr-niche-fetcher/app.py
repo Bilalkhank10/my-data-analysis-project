@@ -446,17 +446,19 @@ INDEX_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GigCraft Lab</title>
-  <meta name="theme-color" content="#f4f3ee">
+  <meta name="theme-color" content="#f3f5f9">
+  <meta name="color-scheme" content="light">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,480;8..60,560&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
   <link rel="stylesheet" href="/static/lab.css">
 </head>
 <body data-workspace="crawl">
 <div class="scrim" id="scrim"></div>
 <div class="app-shell">
-  <aside class="sidebar">
+  <header class="topbar">
+    <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu">☰</button>
     <a class="brand" href="/">
       <span class="mark">G</span>
       <div><strong class="brand-name">GigCraft</strong><small class="brand-sub">Lab</small></div>
@@ -472,12 +474,8 @@ INDEX_HTML = r"""<!doctype html>
     <div class="side-foot">
       <div class="status-row"><span class="dot on"></span><span>Private workspace</span></div>
     </div>
-  </aside>
+  </header>
   <div class="stage">
-    <header class="top">
-      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu">☰</button>
-      <div class="top-title">Market intelligence</div>
-    </header>
     <main class="canvas wide wrap">
       <div class="page-kicker">Research workspace</div>
       <h1 class="page-title">See the market, then write the gig.</h1>
@@ -489,14 +487,6 @@ INDEX_HTML = r"""<!doctype html>
         <button id="submit" type="submit">Start crawl</button>
       </form>
       <p class="fine workspace-crawl">AI stays off until you ask. Dry run is the default and costs nothing. Drafts are never published to Fiverr.</p>
-
-      <nav id="workspaceNav" class="workspace-nav" aria-label="Workspace modules">
-        <button type="button" data-workspace="crawl" class="active"><span>01</span>Crawl</button>
-        <button type="button" data-workspace="intelligence" disabled><span>02</span>Intelligence</button>
-        <button type="button" data-workspace="ai" disabled><span>03</span>Audit</button>
-        <button type="button" data-workspace="builder" disabled><span>04</span>Builder</button>
-        <button type="button" data-workspace="raw" disabled><span>05</span>Source</button>
-      </nav>
 
       <section id="jobPanel" class="job-panel workspace-crawl">
         <div class="job-top"><div><h2 id="jobTitle">Crawl</h2><div id="jobId" class="job-id"></div><span id="stage" class="stage">queued</span></div><button id="cancel" class="danger" type="button">Cancel</button></div>
@@ -518,7 +508,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="analysis-head"><div><h2>Market intelligence</h2><p id="analysisMeta">Deterministic analytics · No LLM</p></div><a id="analysisCsv" class="button secondary" href="#">Download CSV</a></div>
         <div id="analysisTabs" class="tabs">
           <button type="button" data-tab="overview" class="active">Overview</button>
-          <button type="button" data-tab="health" class="active" style="background:var(--green);color:white">Health ★</button>
+          <button type="button" data-tab="health" class="active">Health ★</button>
           <button type="button" data-tab="rankings">Rankings</button>
           <button type="button" data-tab="movement">Movement</button>
           <button type="button" data-tab="keywords">Keywords</button>
@@ -575,7 +565,7 @@ INDEX_HTML = r"""<!doctype html>
 const $=id=>document.getElementById(id); const PAGE_SIZE=20;
 let currentJobId=null,pollTimer=null,currentOffset=0,currentTotal=0,analysisData=null,activeAnalysisTab='overview',aiConfig=null,currentAiRunId=null,aiPollTimer=null,aiResult=null,activeAiTab='ai_overview',builderConfig=null,currentBuilderRunId=null,builderPollTimer=null,builderResult=null,activeBuilderTab='draft';
 const workspaceNames=['crawl','intelligence','ai','builder','raw'];
-function switchWorkspace(name,scroll=true){if(!workspaceNames.includes(name))name='crawl';document.body.dataset.workspace=name;for(const item of workspaceNames){document.querySelectorAll('.workspace-'+item).forEach(node=>node.classList.toggle('workspace-hidden',item!==name))}document.querySelectorAll('#workspaceNav button').forEach(button=>button.classList.toggle('active',button.dataset.workspace===name));if(scroll)window.scrollTo({top:Math.max(0,$('workspaceNav').offsetTop-12),behavior:'smooth'})}
+function switchWorkspace(name,scroll=true){if(!workspaceNames.includes(name))name='crawl';document.body.dataset.workspace=name;for(const item of workspaceNames){document.querySelectorAll('.workspace-'+item).forEach(node=>node.classList.toggle('workspace-hidden',item!==name))}document.querySelectorAll('#workspaceNav button').forEach(button=>button.classList.toggle('active',button.dataset.workspace===name));if(scroll)window.scrollTo({top:Math.max(0,($('workspaceNav')?$('workspaceNav').offsetTop:0)-12),behavior:'smooth'})}
 function enableResearchWorkspaces(enabled=true){document.querySelectorAll('#workspaceNav button').forEach(button=>{if(button.dataset.workspace!=='crawl')button.disabled=!enabled})}
 document.querySelectorAll('#workspaceNav button').forEach(button=>button.onclick=()=>{if(!button.disabled)switchWorkspace(button.dataset.workspace)});
 switchWorkspace('crawl',false);
@@ -689,10 +679,10 @@ async function openExistingJob(job){currentJobId=job.id;renderJob(job);if(['comp
 (async()=>{const saved=localStorage.getItem('fiverr-current-job');if(saved){currentJobId=saved;$('submit').disabled=true;$('submit').textContent='Job running…';await pollJob();if($('submit').disabled&&!pollTimer)pollTimer=setInterval(pollJob,1500);return}try{const recent=await api('/api/jobs?limit=1');if(recent.jobs&&recent.jobs.length)await openExistingJob(recent.jobs[0])}catch{}})();
 </script>
 <script>
-document.getElementById('menuBtn').onclick=()=>document.body.classList.add('nav-open');
+document.getElementById('menuBtn').onclick=()=>document.body.classList.toggle('nav-open');
 document.getElementById('scrim').onclick=()=>document.body.classList.remove('nav-open');
 document.querySelectorAll('#sideNav button[data-workspace]').forEach(button=>{
-  button.onclick=()=>{if(!button.disabled){const target=document.querySelector('#workspaceNav button[data-workspace="'+button.dataset.workspace+'"]');if(target&&!target.disabled)target.click();document.body.classList.remove('nav-open')}}
+  button.onclick=()=>{if(!button.disabled){switchWorkspace(button.dataset.workspace);document.body.classList.remove('nav-open')}}
 });
 const _switch=switchWorkspace;
 switchWorkspace=function(name,scroll=true){
