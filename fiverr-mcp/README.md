@@ -1,4 +1,4 @@
-﻿# Fiverr Niche Fetcher — MCP Server
+# Fiverr Niche Fetcher — MCP Server
 
 A plug-and-play **Model Context Protocol (MCP)** server that exposes Fiverr
 public market data as AI tools.  Works with **LobeHub**, **Claude Desktop**,

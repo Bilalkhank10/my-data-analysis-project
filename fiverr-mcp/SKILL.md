@@ -1,4 +1,4 @@
-﻿---
+---
 name: fiverr-niche-fetcher
 description: >-
   Fiverr public market intelligence MCP server.

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Fiverr Niche Fetcher - MCP Server
 ==================================
 Exposes the full Fiverr data-fetch pipeline as MCP (Model Context Protocol) tools
