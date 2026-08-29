@@ -236,6 +236,8 @@ async def export_analysis_section(job_id: str, section: str) -> StreamingRespons
     allowed = {
         "overview", "rankings", "movement", "keywords", "clusters",
         "pricing", "packages", "competitors", "reviews", "gaps",
+        "health", "health_summary", "health_levels", "health_countries",
+        "health_delivery", "health_reasons",
     }
     if section not in allowed:
         raise HTTPException(status_code=400, detail="Unsupported analysis section")
@@ -516,6 +518,7 @@ INDEX_HTML = r"""<!doctype html>
         <div class="analysis-head"><div><h2>Market intelligence</h2><p id="analysisMeta">Deterministic analytics · No LLM</p></div><a id="analysisCsv" class="button secondary" href="#">Download CSV</a></div>
         <div id="analysisTabs" class="tabs">
           <button type="button" data-tab="overview" class="active">Overview</button>
+          <button type="button" data-tab="health" class="active" style="background:var(--green);color:white">Health ★</button>
           <button type="button" data-tab="rankings">Rankings</button>
           <button type="button" data-tab="movement">Movement</button>
           <button type="button" data-tab="keywords">Keywords</button>
@@ -600,7 +603,47 @@ function renderPackages(root){const p=analysisData.packages||{};const g=el('div'
 function renderCompetitors(root){const controls=el('div','filter-row');const q=document.createElement('input');q.placeholder='Search title or seller';const level=document.createElement('select');for(const v of['All levels',...new Set((analysisData.competitors||[]).map(x=>x.seller_level).filter(Boolean))]){const op=el('option','',v);op.value=v;level.appendChild(op)}const placement=document.createElement('select');for(const v of['All placements','Organic','Sponsored']){const op=el('option','',v);op.value=v;placement.appendChild(op)}controls.append(q,level,placement);root.appendChild(controls);const holder=block(root,'Competitor explorer');function draw(){holder.querySelectorAll('.table-wrap,.empty').forEach(n=>n.remove());const term=q.value.toLowerCase();const rows=(analysisData.competitors||[]).filter(x=>(!term||((x.title||'')+' '+(x.seller||'')).toLowerCase().includes(term))&&(level.value==='All levels'||x.seller_level===level.value)&&(placement.value==='All placements'||(placement.value==='Sponsored')===Boolean(x.is_sponsored)));renderTable(holder,rows,[['global_position','Rank'],['title','Gig'],['seller','Seller'],['seller_level','Level'],['seller_country','Country'],['price','Price'],['rating','Rating'],['review_count','Reviews'],['has_video','Video'],['package_count','Packages'],['url','Link']],300)}q.oninput=draw;level.onchange=draw;placement.onchange=draw;draw()}
 function renderReviews(root){const r=analysisData.reviews||{};const g=el('div','analytics-grid');g.appendChild(analyticsCard('Visible reviews',r.visible_reviews_analyzed));g.appendChild(analyticsCard('Average rating',r.average_visible_rating));g.appendChild(analyticsCard('Ongoing share',(r.ongoing_collaboration_share_pct||0)+'%'));g.appendChild(analyticsCard('Work-sample share',(r.work_sample_share_pct||0)+'%'));g.appendChild(analyticsCard('Seller-response share',(r.seller_response_share_pct||0)+'%'));root.appendChild(g);const sentiment=block(root,'Rule-based sentiment');renderBars(sentiment,r.sentiment,'label','count');const praise=block(root,'Most praised terms');renderBars(praise,r.praise_terms,'term','count');const concerns=block(root,'Concern terms');renderBars(concerns,r.concern_terms,'term','count');const phrases=block(root,'Repeated buyer phrases');renderTable(phrases,r.top_phrases,[['phrase','Phrase'],['review_count','Reviews'],['gig_count','Gigs']],100);const countries=block(root,'Buyer countries');renderBars(countries,r.buyer_countries)}
 function renderGaps(root){const g=analysisData.market_gaps||{};root.appendChild(el('div','analysis-note',(g.formula||{}).warning||'Scores are public-data proxies.'));const opportunities=block(root,'Keyword opportunities');renderTable(opportunities,g.keyword_opportunities,[['phrase','Phrase'],['opportunity_score','Score'],['demand_proxy','Demand proxy'],['competition_proxy','Competition'],['price_potential','Price potential'],['gig_count','Gigs'],['median_price','Median price'],['evidence','Evidence']],100);const review=block(root,'Review-language gaps');renderTable(review,g.review_language_gaps,[['phrase','Buyer phrase'],['review_gig_count','Review gigs'],['title_gig_count','Title gigs'],['gap_type','Reason']],100);const offers=block(root,'Offer-feature gaps');renderTable(offers,g.offer_feature_gaps,[['feature','Feature'],['top_10_gig_count','Top-10 gigs'],['overall_gig_count','Overall gigs'],['overall_coverage_pct','Coverage %'],['gap_type','Reason']],100)}
-function renderAnalysisTab(tab){activeAnalysisTab=tab;document.querySelectorAll('#analysisTabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));$('analysisCsv').href='/api/jobs/'+currentJobId+'/analysis/'+tab+'.csv';const root=$('analysisContent');root.replaceChildren();if(!analysisData){root.appendChild(el('div','empty','Analysis not loaded'));return}const renders={overview:renderOverview,rankings:renderRankings,movement:renderMovement,keywords:renderKeywords,clusters:renderClusters,pricing:renderPricing,packages:renderPackages,competitors:renderCompetitors,reviews:renderReviews,gaps:renderGaps};(renders[tab]||renderOverview)(root)}
+function renderHealth(root){
+  const h=analysisData.market_health||{}; const s=h.summary||{};
+  const intro=el('div','analysis-note','Active vs Dead analysis for keyword \"'+(analysisData.niche||'')+'\". Active = fetch success. Dead = fetch failed OR no reviews + offline + old delivery. Data from sampled gigs + estimated total from Fiverr total results.');
+  root.appendChild(intro);
+  const g=el('div','analytics-grid');
+  g.appendChild(analyticsCard('Total Fiverr Results',s.total_fiverr_results,'Fiverr shows this number'));
+  g.appendChild(analyticsCard('Sampled Gigs',s.sampled_gigs,'We crawled this many'));
+  g.appendChild(analyticsCard('Active Gigs (Success)',s.active_gigs,'Fetch success = alive'));
+  g.appendChild(analyticsCard('Dead Fetch Failed',s.dead_fetch_failed,'404 / paused / deleted'));
+  g.appendChild(analyticsCard('Online Now',s.online_now,'Seller online badge'));
+  g.appendChild(analyticsCard('Offline',s.offline));
+  g.appendChild(analyticsCard('With Reviews',s.with_reviews));
+  g.appendChild(analyticsCard('No Reviews (Dead Risk)',s.no_reviews));
+  g.appendChild(analyticsCard('Fully Active',s.fully_active,'Online + Recent <=30d'));
+  g.appendChild(analyticsCard('No Activity Dead',s.no_activity_dead,'No reviews + offline + old'));
+  g.appendChild(analyticsCard('Recent 7d',s.recent_7d,'Last delivery <=7 days'));
+  g.appendChild(analyticsCard('Recent 30d',s.recent_30d));
+  g.appendChild(analyticsCard('Dormant 90d+',s.dormant_90d_plus,'>90 days'));
+  g.appendChild(analyticsCard('Unknown Delivery',s.unknown_delivery));
+  g.appendChild(analyticsCard('Active Rate %',s.active_rate_pct!=null?s.active_rate_pct+'%':'—'));
+  g.appendChild(analyticsCard('Online Rate %',s.online_rate_pct!=null?s.online_rate_pct+'%':'—'));
+  g.appendChild(analyticsCard('Est. Total Active',s.estimated_total_active,'total_fiverr * active_rate'));
+  g.appendChild(analyticsCard('Est. Total Dead',s.estimated_total_dead_no_activity));
+  root.appendChild(g);
+
+  const comp=block(root,'Price Comparison: Active vs Dead');
+  const pc=h.price_comparison||{};
+  renderTable(comp,[
+    {segment:'Active gigs',...pc.active},
+    {segment:'Dead / No Activity',...pc.dead_no_activity},
+    {segment:'Online Now',...pc.online},
+    {segment:'No Reviews',...pc.no_reviews}
+  ],[['segment','Segment'],['count','Count'],['min','Min'],['median','Median'],['mean','Mean'],['max','Max']]);
+
+  const del=block(root,'Last Delivery Buckets'); renderBars(del,h.delivery_buckets,'label','count');
+  const reasons=block(root,'Dead Reasons'); renderTable(reasons,h.dead_reasons,[['reason','Reason'],['count','Count'],['share_pct','Share %']],50);
+  const byLevel=block(root,'Active/Dead by Seller Level'); renderTable(byLevel,h.by_level,[['level','Level'],['total','Total'],['active','Active'],['online','Online'],['no_reviews','No Reviews'],['no_activity_dead','Dead No Activity'],['fully_active','Fully Active'],['recent_30d','Recent 30d'],['median_price','Median $'],['share_pct','Share %']],50);
+  const byCountry=block(root,'By Country'); renderTable(byCountry,h.by_country,[['country','Country'],['total','Total'],['active','Active'],['online','Online'],['no_reviews','No Reviews'],['recent_30d','Recent 30d'],['median_price','Median $'],['share_pct','Share %']],50);
+  const details=block(root,'Gig Health Details - Full List'); renderTable(details,h.details,[['global_position','Rank'],['title','Gig'],['seller_level','Level'],['price','Price'],['review_count','Reviews'],['seller_online','Online'],['last_delivery_raw','Last Delivery'],['last_delivery_days','Days'],['health_status','Health'],['dead_reason','Dead Reason'],['url','Link']],200);
+}
+function renderAnalysisTab(tab){activeAnalysisTab=tab;document.querySelectorAll('#analysisTabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));$('analysisCsv').href='/api/jobs/'+currentJobId+'/analysis/'+tab+'.csv';const root=$('analysisContent');root.replaceChildren();if(!analysisData){root.appendChild(el('div','empty','Analysis not loaded'));return}const renders={overview:renderOverview,health:renderHealth,rankings:renderRankings,movement:renderMovement,keywords:renderKeywords,clusters:renderClusters,pricing:renderPricing,packages:renderPackages,competitors:renderCompetitors,reviews:renderReviews,gaps:renderGaps};(renders[tab]||renderOverview)(root)}
 async function loadAnalysis(){try{analysisData=await api('/api/jobs/'+currentJobId+'/analysis');$('analysisPanel').classList.add('show');$('analysisMeta').textContent='Generated '+analysisData.generated_at+' · '+(analysisData.methodology.llm_used?'LLM enabled':'No LLM · deterministic analytics');renderAnalysisTab(activeAnalysisTab)}catch(e){$('analysisPanel').classList.add('show');$('analysisContent').replaceChildren(el('div','analysis-note','Analysis unavailable: '+e.message))}}
 document.querySelectorAll('#analysisTabs button').forEach(button=>button.onclick=()=>renderAnalysisTab(button.dataset.tab));
 function listPanel(root,title,items){const b=block(root,title);if(!items||!items.length){b.appendChild(el('div','empty','No items'));return b}const ul=document.createElement('ul');ul.style.margin='0';ul.style.paddingLeft='20px';for(const item of items){const li=el('li','',typeof item==='string'?item:JSON.stringify(item));li.style.marginBottom='7px';li.style.color='var(--muted)';ul.appendChild(li)}b.appendChild(ul);return b}

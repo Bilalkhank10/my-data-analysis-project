@@ -691,7 +691,7 @@ class Storage:
         return self._job_row(row) if row else None
 
     def save_analysis(
-        self, job_id: str, analysis: dict[str, Any], version: str = "phase2-v1"
+        self, job_id: str, analysis: dict[str, Any], version: str = "phase2-v2"
     ) -> None:
         generated_at = str(analysis.get("generated_at") or utc_now())
         payload = json.dumps(analysis, ensure_ascii=False)
@@ -709,22 +709,29 @@ class Storage:
             )
 
     def get_analysis(
-        self, job_id: str, version: str = "phase2-v1"
+        self, job_id: str, version: str | None = None
     ) -> dict[str, Any] | None:
+        # Backward compatible: try v2 first, then v1
+        versions_to_try = []
+        if version:
+            versions_to_try = [version]
+        else:
+            versions_to_try = ["phase2-v2", "phase2-v1"]
         with self._lock, self._connection() as connection:
-            row = connection.execute(
-                """
-                SELECT analysis_json FROM analysis_snapshots
-                WHERE job_id=? AND version=?
-                """,
-                (job_id, version),
-            ).fetchone()
-        if not row:
-            return None
-        try:
-            return json.loads(row["analysis_json"])
-        except json.JSONDecodeError:
-            return None
+            for ver in versions_to_try:
+                row = connection.execute(
+                    """
+                    SELECT analysis_json FROM analysis_snapshots
+                    WHERE job_id=? AND version=?
+                    """,
+                    (job_id, ver),
+                ).fetchone()
+                if row:
+                    try:
+                        return json.loads(row["analysis_json"])
+                    except json.JSONDecodeError:
+                        continue
+        return None
 
     def create_ai_run(
         self,
