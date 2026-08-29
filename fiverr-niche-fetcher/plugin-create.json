@@ -49,13 +49,13 @@
   },
   "customParams": {
     "mcp": {
-      "command": "C:\\Users\\5540 laptop\\Desktop\\LAST ONE\\fiverr-niche-fetcher\\.venv\\Scripts\\python.exe",
+      "command": "REPLACE_WITH_FULL_PATH\\.venv\\Scripts\\python.exe",
       "args": [
-        "C:\\Users\\5540 laptop\\Desktop\\LAST ONE\\fiverr-niche-fetcher\\mcp_server.py"
+        "REPLACE_WITH_FULL_PATH\\mcp_server.py"
       ],
       "type": "stdio",
       "env": {
-        "PYTHONPATH": "C:\\Users\\5540 laptop\\Desktop\\LAST ONE\\fiverr-niche-fetcher",
+        "PYTHONPATH": "REPLACE_WITH_FULL_PATH",
         "ALLOW_READER_FALLBACK": "true",
         "MAX_CONCURRENCY": "2",
         "REQUEST_DELAY_SECONDS": "2.0",
