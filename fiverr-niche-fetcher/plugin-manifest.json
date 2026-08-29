@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "title": "Fiverr Niche Fetcher",
+    "description": "Search and analyze Fiverr gigs to discover niche opportunities. Includes tools for searching gigs, fetching detailed info, and running the full crawl pipeline.",
+    "avatar": "💰"
+  },
+  "type": "mcp",
+  "tools": [
+    {
+      "name": "search_fiverr_gigs",
+      "description": "Search Fiverr for gigs matching a niche keyword and return ranked search-card metadata: title, seller name/level, rating, review count, starting price, thumbnail URL, sponsored/organic rank position, and badges. No Fiverr account required.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "niche": { "type": "string", "description": "Search keyword or niche, e.g. 'logo design' or 'python web scraping'." },
+          "limit": { "type": "integer", "description": "Maximum gig cards to return (1-500). Default: 20." },
+          "max_search_pages": { "type": "integer", "description": "Maximum Fiverr search pages to scan (1-30). Default: 5." }
+        },
+        "required": ["niche"]
+      }
+    },
+    {
+      "name": "fetch_gig_details",
+      "description": "Fetch and parse a single Fiverr gig detail page. Returns comprehensive gig title, seller info, pricing packages, FAQs, reviews, related tags, and metadata. No Fiverr account required.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "description": "Full Fiverr gig URL, e.g. 'https://www.fiverr.com/seller/gig-title'." }
+        },
+        "required": ["url"]
+      }
+    },
+    {
+      "name": "crawl_fiverr_niche",
+      "description": "Run the complete two-stage Fiverr crawl pipeline: search + fetch all gig details concurrently. Returns merged results with search-card metadata and full gig details plus crawl statistics. Rate-limited and polite by default.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "niche": { "type": "string", "description": "Search keyword or niche." },
+          "limit": { "type": "integer", "description": "Maximum gigs to crawl end-to-end (1-50). Default: 10." },
+          "max_concurrency": { "type": "integer", "description": "Parallel gig-detail fetch workers (1-5). Default: 2." },
+          "delay_seconds": { "type": "number", "description": "Seconds between individual gig fetches (0.5-10). Default: 2.0." }
+        },
+        "required": ["niche"]
+      }
+    }
+  ]
+}

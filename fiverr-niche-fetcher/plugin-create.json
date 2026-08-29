@@ -1,0 +1,70 @@
+{
+  "manifest": {
+    "meta": {
+      "title": "Fiverr Niche Fetcher",
+      "description": "Search and analyze Fiverr gigs to discover niche opportunities. Includes tools for searching gigs, fetching detailed info, and running the full crawl pipeline.",
+      "avatar": "💰"
+    },
+    "type": "mcp",
+    "tools": [
+      {
+        "name": "search_fiverr_gigs",
+        "description": "Search Fiverr for gigs matching a niche keyword and return ranked search-card metadata. No Fiverr account required.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "niche": { "type": "string", "description": "Search keyword or niche, e.g. 'logo design' or 'python web scraping'." },
+            "limit": { "type": "integer", "description": "Maximum gig cards to return (1-500). Default: 20." },
+            "max_search_pages": { "type": "integer", "description": "Maximum Fiverr search pages to scan (1-30). Default: 5." }
+          },
+          "required": ["niche"]
+        }
+      },
+      {
+        "name": "fetch_gig_details",
+        "description": "Fetch and parse a single Fiverr gig detail page. No Fiverr account required.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string", "description": "Full Fiverr gig URL, e.g. 'https://www.fiverr.com/seller/gig-title'." }
+          },
+          "required": ["url"]
+        }
+      },
+      {
+        "name": "crawl_fiverr_niche",
+        "description": "Run the complete two-stage Fiverr crawl pipeline: search + fetch all gig details concurrently. Rate-limited and polite by default.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "niche": { "type": "string", "description": "Search keyword or niche." },
+            "limit": { "type": "integer", "description": "Maximum gigs to crawl end-to-end (1-50). Default: 10." },
+            "max_concurrency": { "type": "integer", "description": "Parallel gig-detail fetch workers (1-5). Default: 2." },
+            "delay_seconds": { "type": "number", "description": "Seconds between individual gig fetches (0.5-10). Default: 2.0." }
+          },
+          "required": ["niche"]
+        }
+      }
+    ]
+  },
+  "customParams": {
+    "mcp": {
+      "command": "C:\\Users\\5540 laptop\\Desktop\\LAST ONE\\fiverr-niche-fetcher\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\5540 laptop\\Desktop\\LAST ONE\\fiverr-niche-fetcher\\mcp_server.py"
+      ],
+      "type": "stdio",
+      "env": {
+        "PYTHONPATH": "C:\\Users\\5540 laptop\\Desktop\\LAST ONE\\fiverr-niche-fetcher",
+        "ALLOW_READER_FALLBACK": "true",
+        "MAX_CONCURRENCY": "2",
+        "REQUEST_DELAY_SECONDS": "2.0",
+        "MAX_SEARCH_PAGES": "10",
+        "SEARCH_PAGE_DELAY_SECONDS": "0.75",
+        "RETRY_COUNT": "3",
+        "RETRY_BASE_DELAY_SECONDS": "1.0",
+        "READER_TIMEOUT_SECONDS": "90"
+      }
+    }
+  }
+}

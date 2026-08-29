@@ -334,8 +334,11 @@ class Storage:
             for stmt in migrations:
                 try:
                     connection.execute(stmt)
-                except Exception:
-                    pass  # Column already exists — safe to ignore
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column" in str(exc).lower():
+                        pass  # Column already exists — safe to ignore
+                    else:
+                        raise  # Unexpected DDL error — surface it
 
     def recover_incomplete_jobs(self) -> int:
         """Mark jobs left running by a previous process as interrupted."""
