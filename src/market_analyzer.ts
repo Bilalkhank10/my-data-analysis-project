@@ -42,6 +42,12 @@ function quantile(sorted: number[], p: number): number | null {
   return sorted[lower] * (1 - frac) + sorted[upper] * frac;
 }
 
+// Median of an unsorted array of prices (mutates a copy). Returns null when empty.
+function medianOf(values: number[]): number | null {
+  const sorted = values.slice().sort((a, b) => a - b);
+  return quantile(sorted, 0.5);
+}
+
 function calcNumericStats(values: (number | null | undefined)[]): {
   count: number;
   min: number | null;
@@ -80,7 +86,8 @@ function parseLastDeliveryDays(text?: string): number | null {
   if (!text) return null;
   const t = text.toLowerCase();
   if (t.includes("hour") || t.includes("minute") || t.includes("today") || t.includes("just now")) return 0.5;
-  if (t.includes("yesterday") || t.includes("1 day")) return 1;
+  // Check explicit numeric units first. Otherwise "21 days ago" would match the
+  // loose "1 day" substring below and be misread as 1 day.
   const dayMatch = t.match(/(\d+)\s+day/);
   if (dayMatch) return parseInt(dayMatch[1], 10);
   const weekMatch = t.match(/(\d+)\s+week/);
@@ -89,6 +96,7 @@ function parseLastDeliveryDays(text?: string): number | null {
   if (monthMatch) return parseInt(monthMatch[1], 10) * 30;
   const yearMatch = t.match(/(\d+)\s+year/);
   if (yearMatch) return parseInt(yearMatch[1], 10) * 365;
+  if (t.includes("yesterday") || /\b1\s*day/.test(t) || t.includes("a day")) return 1;
   return null;
 }
 
@@ -196,7 +204,7 @@ export class MarketAnalyzer {
       no_activity_dead: data.dead,
       fully_active: data.fully,
       recent_30d: data.recent30,
-      median_price: data.prices.length ? Math.round((data.prices.sort((a, b) => a - b)[Math.floor(data.prices.length / 2)] || 0)) : null,
+      median_price: medianOf(data.prices) !== null ? Math.round(medianOf(data.prices) as number) : null,
       share_pct: totalGigs > 0 ? Math.round((data.total / totalGigs) * 100) : 0,
     }));
 
@@ -225,7 +233,7 @@ export class MarketAnalyzer {
         online: data.online,
         no_reviews: data.no_reviews,
         recent_30d: data.recent30,
-        median_price: data.prices.length ? Math.round(data.prices.sort((a, b) => a - b)[Math.floor(data.prices.length / 2)]) : null,
+        median_price: medianOf(data.prices) !== null ? Math.round(medianOf(data.prices) as number) : null,
         share_pct: totalGigs > 0 ? Math.round((data.total / totalGigs) * 100) : 0,
       }));
 
@@ -316,7 +324,7 @@ export class MarketAnalyzer {
           share_pct: totalGigs > 0 ? Math.round((d.count / totalGigs) * 100) : 0,
           top_20_count: d.top20,
           average_rank: d.ranks.length ? Math.round((d.ranks.reduce((a, b) => a + b, 0) / d.ranks.length) * 10) / 10 : 0,
-          median_price: d.prices.length ? Math.round(d.prices.sort((a, b) => a - b)[Math.floor(d.prices.length / 2)]) : 0,
+          median_price: d.prices.length ? Math.round(medianOf(d.prices) || 0) : 0,
           average_reviews: d.reviews.length ? Math.round(d.reviews.reduce((a, b) => a + b, 0) / d.reviews.length) : 0,
         }));
     };
@@ -332,6 +340,7 @@ export class MarketAnalyzer {
     // 4. Pricing & Packages
     const prices = gigs.map((g) => g.starting_price_usd).filter((p): p is number => Boolean(p));
     const priceStats = calcNumericStats(prices);
+    const reviewStats = calcNumericStats(gigs.map((g) => g.review_count));
 
     const histBuckets = [
       { label: "$5 – $25", count: 0 },
@@ -431,7 +440,7 @@ export class MarketAnalyzer {
         sponsored_share_pct: totalGigs > 0 ? Math.round((gigs.filter((g) => g.search?.is_sponsored).length / totalGigs) * 100) : 0,
         starting_price: priceStats,
         rating: { mean: 4.95 },
-        review_count: { median: Math.round(priceStats.median ? priceStats.median * 1.5 : 24) },
+        review_count: { median: reviewStats.median ?? 0, mean: reviewStats.mean ?? 0 },
         video_share_pct: totalGigs > 0 ? Math.round((gigs.filter((g) => g.has_video).length / totalGigs) * 100) : 18,
         seller_levels: byLevel.map((l) => ({ label: l.level, count: l.total, share_pct: l.share_pct })),
         seller_countries: byCountry.slice(0, 8).map((c) => ({ label: c.country, count: c.total, share_pct: c.share_pct })),
@@ -568,18 +577,87 @@ export class MarketAnalyzer {
 
   static exportRows(analysis: any, section: string): Record<string, any>[] {
     if (!analysis) return [];
-    if (section === "health" || section === "health_summary") {
-      const s = analysis.market_health?.summary || {};
-      return [s];
+    switch (section) {
+      case "overview": {
+        const o = analysis.overview || {};
+        return [
+          {
+            niche: analysis.niche,
+            generated_at: analysis.generated_at,
+            sampled_gigs: o.sampled_gigs,
+            available_results: o.available_results,
+            unique_sellers: o.unique_sellers,
+            sponsored_share_pct: o.sponsored_share_pct,
+            median_price: o.starting_price?.median,
+            mean_price: o.starting_price?.mean,
+            average_rating: o.rating?.mean,
+            median_reviews: o.review_count?.median,
+            video_share_pct: o.video_share_pct,
+            detail_coverage_pct: o.detail_coverage_pct,
+          },
+        ];
+      }
+      case "health":
+      case "health_summary":
+        return [analysis.market_health?.summary || {}];
+      case "health_levels":
+        return analysis.market_health?.by_level || [];
+      case "health_countries":
+        return analysis.market_health?.by_country || [];
+      case "health_delivery":
+        return analysis.market_health?.delivery_buckets || [];
+      case "health_reasons":
+        return analysis.market_health?.dead_reasons || [];
+      case "health_details":
+      case "details":
+        return analysis.market_health?.details || [];
+      case "rankings":
+        return analysis.rankings?.top_gigs || [];
+      case "sellers":
+        return analysis.rankings?.seller_concentration || [];
+      case "competitors":
+        return analysis.competitors || [];
+      case "movement":
+        // No historical comparison exists; emit an explanatory single row.
+        return [{ available: false, reason: analysis.rank_movement?.reason || "No historical crawl available." }];
+      case "keywords":
+      case "bigrams":
+        return analysis.keywords?.bigrams || [];
+      case "trigrams":
+        return analysis.keywords?.trigrams || [];
+      case "unigrams":
+        return analysis.keywords?.unigrams || [];
+      case "title_starts":
+        return analysis.keywords?.title_starts || [];
+      case "related_tags":
+        return analysis.keywords?.related_tags || [];
+      case "clusters":
+        return analysis.keyword_clusters || [];
+      case "pricing":
+        return [analysis.pricing?.overall || {}];
+      case "pricing_histogram":
+        return analysis.pricing?.histogram || [];
+      case "packages":
+        return analysis.packages?.feature_matrix || [];
+      case "reviews": {
+        const r = analysis.reviews || {};
+        return [
+          {
+            visible_reviews_analyzed: r.visible_reviews_analyzed,
+            average_visible_rating: r.average_visible_rating,
+            ongoing_collaboration_share_pct: r.ongoing_collaboration_share_pct,
+            work_sample_share_pct: r.work_sample_share_pct,
+            seller_response_share_pct: r.seller_response_share_pct,
+          },
+          ...(r.sentiment || []),
+        ];
+      }
+      case "gaps":
+        return analysis.market_gaps?.keyword_opportunities || [];
+      default:
+        // Unknown section: return no rows rather than silently dumping an
+        // unrelated table.
+        return [];
     }
-    if (section === "health_levels") return analysis.market_health?.by_level || [];
-    if (section === "health_countries") return analysis.market_health?.by_country || [];
-    if (section === "rankings") return analysis.rankings?.top_gigs || [];
-    if (section === "competitors") return analysis.competitors || [];
-    if (section === "keywords") return analysis.keywords?.bigrams || [];
-    if (section === "clusters") return analysis.keyword_clusters || [];
-    if (section === "pricing") return [analysis.pricing?.overall || {}];
-    if (section === "gaps") return analysis.market_gaps?.keyword_opportunities || [];
-    return analysis.market_health?.details || [];
   }
 }

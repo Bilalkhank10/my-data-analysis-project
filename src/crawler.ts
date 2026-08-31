@@ -1,10 +1,7 @@
-import * as cheerio from "cheerio";
-import { GigResult, JobRecord } from "./types.js";
+import { GigResult } from "./types.js";
 import { Storage, utcNow, storage } from "./storage.js";
 import { MarketAnalyzer } from "./market_analyzer.js";
-
-const DEFAULT_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+import { readerFetcher } from "./fiverr_fetcher.js";
 
 export class FiverrCrawler {
   private storage: Storage;
@@ -16,62 +13,103 @@ export class FiverrCrawler {
   async runJob(jobId: string): Promise<void> {
     const job = this.storage.getJob(jobId);
     if (!job) return;
+    // Job may have been cancelled while queued.
+    if (job.status === "cancelled") return;
 
     try {
       this.storage.updateJob(jobId, {
         status: "running",
         stage: "discovering",
-        progress_percent: 10,
+        progress_percent: 5,
         started_at: utcNow(),
+        discovery_source: "Fetching live Fiverr data via public reader…",
       });
 
       const niche = job.niche.trim();
       const limit = Math.min(Math.max(job.limit || 12, 4), 60);
 
-      // Attempt live search fetch
       let gigs: GigResult[] = [];
+      let isLive = false;
+      let availableResults: number | null = null;
+      let pagesScanned = 0;
+      const warnings: string[] = [];
+
       try {
-        gigs = await this.fetchLiveOrSimulated(niche, limit);
+        const outcome = await readerFetcher.crawl(niche, limit, {
+          isCancelled: () => this.storage.getJob(jobId)?.status === "cancelled",
+          onProgress: (p) => {
+            this.storage.updateJob(jobId, {
+              stage: p.stage === "fetching" ? "fetching_details" : "discovering",
+              progress_percent: Math.round(p.progress_percent || 0),
+              discovered_count: p.discovered_count,
+              processed_count: p.processed_count,
+              success_count: p.success_count,
+              failed_count: p.failed_count,
+              pages_scanned: p.pages_scanned,
+            });
+          },
+        });
+        gigs = outcome.results || [];
+        pagesScanned = outcome.pagesScanned;
+        availableResults = outcome.availableResults;
+        warnings.push(...(outcome.warnings || []));
+        // "Live" means we actually parsed at least one real gig (successfully,
+        // not an error stub).
+        isLive = gigs.some((g) => !g.error && g.url);
       } catch (err: any) {
-        console.warn("Live fetch error, generating resilient market sample:", err?.message);
-        gigs = this.generateSampleGigs(niche, limit);
+        warnings.push(`Live crawl failed: ${err?.message || err}`);
       }
 
-      if (gigs.length === 0) {
+      if (!isLive || gigs.length === 0) {
+        // Fall back to an explicitly-labelled illustrative sample so the UI is
+        // still usable offline / when Fiverr blocks the reader.
         gigs = this.generateSampleGigs(niche, limit);
+        isLive = false;
+        warnings.push(
+          "Live Fiverr data was unavailable (network blocked or reader returned no listings); showing an illustrative simulated sample, not real listings."
+        );
       }
+
+      const successful = gigs.filter((g) => !g.error).length;
+      const failed = gigs.filter((g) => g.error).length;
 
       this.storage.updateJob(jobId, {
-        stage: "processing_gigs",
-        progress_percent: 60,
+        stage: "analyzing",
+        progress_percent: isLive ? 96 : 60,
         discovered_count: gigs.length,
-        available_results: Math.max(gigs.length * 5, 240),
+        pages_scanned: pagesScanned || undefined,
+        available_results: isLive
+          ? availableResults ?? Math.max(gigs.length, successful)
+          : gigs.length,
+        discovery_source: isLive
+          ? "Fiverr live data via public reader"
+          : "Illustrative sample (live Fiverr fetch unavailable — showing demo data)",
+        warnings,
       });
 
-      // Save results
       for (const gig of gigs) {
         this.storage.saveGigResult(jobId, gig);
       }
 
-      // Compute full deterministic analysis
-      const analysis = MarketAnalyzer.analyze(
-        niche,
-        gigs,
-        job.available_results || gigs.length * 6
-      );
+      const totalAvailable = isLive ? availableResults || gigs.length : gigs.length;
+      const analysis = MarketAnalyzer.analyze(niche, gigs, totalAvailable);
       this.storage.saveAnalysis(jobId, analysis);
-
-      // Write export files
       this.storage.writeJobExports(jobId, niche, gigs);
 
+      // Do not overwrite a cancellation that arrived mid-crawl.
+      if (this.storage.getJob(jobId)?.status === "cancelled") return;
+
       this.storage.updateJob(jobId, {
-        status: "completed",
+        status: failed > 0 && successful === 0 ? "failed" : "completed",
         stage: "done",
         progress_percent: 100,
         processed_count: gigs.length,
-        success_count: gigs.length,
+        success_count: successful,
+        failed_count: failed,
         finished_at: utcNow(),
-        discovery_source: "Fiverr Search API / Public Engine",
+        ...(failed > 0 && successful === 0
+          ? { error: "All gig detail fetches failed." }
+          : {}),
       });
     } catch (err: any) {
       console.error("Job execution failed:", err);
@@ -82,96 +120,6 @@ export class FiverrCrawler {
         finished_at: utcNow(),
       });
     }
-  }
-
-  private async fetchLiveOrSimulated(niche: string, limit: number): Promise<GigResult[]> {
-    const encoded = encodeURIComponent(niche);
-    const searchUrl = `https://www.fiverr.com/search/gigs?query=${encoded}&source=top-bar&search_in=everywhere&search-autocomplete-original-term=${encoded}`;
-
-    try {
-      const response = await fetch(searchUrl, {
-        headers: {
-          "User-Agent": DEFAULT_USER_AGENT,
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-        signal: AbortSignal.timeout(6000),
-      });
-
-      if (response.ok) {
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        const gigCards = $(".gig-card-layout, [data-gig-id], .basic-gig-card, .gig-wrapper");
-        
-        if (gigCards.length > 0) {
-          const parsedGigs: GigResult[] = [];
-          gigCards.each((i, el) => {
-            if (parsedGigs.length >= limit) return;
-            const card = $(el);
-            const title =
-              card.find("h3, .gig-title, a[title]").first().text().trim() ||
-              card.find("a[title]").attr("title") ||
-              `Professional ${niche} Service`;
-            const seller =
-              card.find(".seller-name, .username, .seller-info strong").first().text().trim() ||
-              `expert_${i + 1}`;
-            const priceText =
-              card.find(".price, .price-wrapper, span[class*='price']").first().text().trim() ||
-              "$35";
-            const priceNum = parseInt(priceText.replace(/[^0-9]/g, "") || "35", 10);
-            const ratingText =
-              card.find(".rating-score, .stars, span[class*='rating']").first().text().trim() ||
-              "5.0";
-            const ratingNum = parseFloat(ratingText) || 5.0;
-            const revText =
-              card.find(".rating-count, .reviews-count").first().text().trim() || "(12)";
-            const revNum = parseInt(revText.replace(/[^0-9]/g, "") || "12", 10);
-            const isOnline = card.find(".online-badge, .is-online, [class*='online']").length > 0;
-            const hasVideo = card.find(".video-badge, .has-video, [class*='video']").length > 0;
-            const linkHref = card.find("a[href*='/']").first().attr("href") || "";
-            const fullUrl = linkHref.startsWith("http")
-              ? linkHref
-              : `https://www.fiverr.com${linkHref.startsWith("/") ? "" : "/"}${linkHref}`;
-
-            parsedGigs.push({
-              url: fullUrl || `https://www.fiverr.com/${seller}/do-${encodeURIComponent(niche)}-service-${i + 1}`,
-              title,
-              seller_name: seller,
-              seller_username: seller.toLowerCase().replace(/[^a-z0-9_]/g, ""),
-              seller_level: i === 0 ? "Top Rated" : i < 4 ? "Level 2" : i < 8 ? "Level 1" : "New Seller",
-              seller_country: i % 2 === 0 ? "United States" : "United Kingdom",
-              starting_price_usd: priceNum,
-              rating: ratingNum,
-              review_count: revNum,
-              has_video: hasVideo,
-              last_delivery: i < 3 ? "1 day ago" : i < 7 ? "4 days ago" : "2 weeks ago",
-              search: {
-                niche,
-                global_position: i + 1,
-                organic_position: i + 1,
-                is_sponsored: i === 0,
-                seller_online: isOnline || i % 3 === 0,
-              },
-              related_tags: [
-                niche.toLowerCase(),
-                "dashboard",
-                "custom reports",
-                "analytics",
-                "data visualization",
-              ],
-            });
-          });
-
-          if (parsedGigs.length > 0) {
-            return parsedGigs;
-          }
-        }
-      }
-    } catch {
-      // Fallback
-    }
-
-    return this.generateSampleGigs(niche, limit);
   }
 
   private generateSampleGigs(niche: string, limit: number): GigResult[] {
@@ -213,11 +161,13 @@ export class FiverrCrawler {
       results.push({
         url: `https://www.fiverr.com/${s.username}/do-professional-${encodeURIComponent(niche.toLowerCase().replace(/\s+/g, "-"))}-${i + 1}`,
         title,
+        fetched_at: utcNow(),
         seller_name: s.name,
         seller_username: s.username,
         seller_level: s.level,
         seller_country: s.country,
         starting_price_usd: basePrice,
+        currency: "USD",
         rating: 4.9,
         review_count: revs,
         has_video: i % 2 === 0,
@@ -275,7 +225,6 @@ export const crawlerManager = {
   startJob(niche: string, limit: number = 10) {
     const id = `job_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const job = storage.createJob(id, niche, limit);
-    // Run async in background
     setTimeout(() => {
       crawler.runJob(id).catch((e) => console.error("Job runner error:", e));
     }, 50);
