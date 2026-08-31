@@ -1,6 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
 import { Storage, utcNow, storage } from "./storage.js";
-import { GigResult } from "./types.js";
 
 let geminiClient: GoogleGenAI | null = null;
 
@@ -446,10 +445,17 @@ ${draft.thumbnail_script?.video_60s_script}
 
 const engineInstance = new AIEngine(storage);
 
+const VALID_MODES = new Set(["dry_run", "test", "standard", "deep"]);
+
+function normalizeMode(mode: any): "dry_run" | "test" | "standard" | "deep" {
+  return VALID_MODES.has(mode) ? mode : "standard";
+}
+
 export const aiEngine = {
   startAudit(jobId: string, mode: any = "standard", maxGigs: number = 10) {
     const id = `airun_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const run = storage.createAIRun(id, jobId, mode, maxGigs);
+    const safeGigs = Math.min(50, Math.max(1, Math.round(Number(maxGigs) || 10)));
+    const run = storage.createAIRun(id, jobId, normalizeMode(mode), safeGigs);
     setTimeout(() => {
       engineInstance.runSemanticAudit(id).catch((e) => console.error("Audit error:", e));
     }, 50);
@@ -470,7 +476,7 @@ export const aiEngine = {
 
   startBuilderRun(jobId: string, params: any = {}) {
     const id = `genrun_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const mode = params.mode || "standard";
+    const mode = normalizeMode(params.mode || "standard");
     const run = storage.createGenerationRun(id, jobId, mode);
     setTimeout(() => {
       engineInstance

@@ -89,13 +89,16 @@ export const simpleWorkflowRunner = new SimpleWorkflowRunner(storage, crawler, a
 export const simpleWorkflowManager = {
   startWorkflow(params: {
     niche: string;
-    quality: "fast" | "recommended" | "best";
+    quality?: string;
     buyer?: string;
     language?: string;
     existing_url?: string | null;
   }) {
     const id = `wf_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const flow = storage.createSimpleWorkflow(id, params.niche, params.quality, params);
+    const quality = (["fast", "recommended", "best"].includes(params.quality || "")
+      ? params.quality
+      : "recommended") as "fast" | "recommended" | "best";
+    const flow = storage.createSimpleWorkflow(id, params.niche, quality, params);
     setTimeout(() => {
       simpleWorkflowRunner.runWorkflow(id).catch((e) => console.error("Workflow error:", e));
     }, 50);

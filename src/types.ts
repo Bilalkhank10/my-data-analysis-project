@@ -53,6 +53,7 @@ export interface GigResult {
   review_count?: number;
   starting_price_usd?: number;
   hourly_rate_usd?: number;
+  currency?: string;
   category_path?: string[];
   gallery_count?: number;
   has_video?: boolean;

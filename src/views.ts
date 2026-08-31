@@ -252,6 +252,15 @@ async function api(url, opts = {}) {
   return d;
 }
 
+// Append the auth token to direct-navigation URLs (file downloads open in a
+// new top-level navigation where Authorization headers cannot be set).
+function authUrl(url) {
+  const token = localStorage.getItem('gigcraft_auth_token');
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return url + sep + 'token=' + encodeURIComponent(token);
+}
+
 $('menuBtn').onclick = () => document.body.classList.toggle('nav-open');
 $('scrim').onclick = () => document.body.classList.remove('nav-open');
 
@@ -630,7 +639,7 @@ function renderResult(result, run) {
   rst.onclick = reset;
   root.appendChild(rst);
 
-  $('download').href = run.markdown_url || '#';
+  $('download').href = run.markdown_url ? authUrl(run.markdown_url) : '#';
   $('copyAll').onclick = () => copy(ftxt(gig, visual));
 }
 
@@ -1248,6 +1257,15 @@ async function api(url, options = {}) {
   return d;
 }
 
+// Append the auth token to direct-navigation URLs (file downloads open in a
+// new top-level navigation where Authorization headers cannot be set).
+function authUrl(url) {
+  const token = localStorage.getItem('gigcraft_auth_token');
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return url + sep + 'token=' + encodeURIComponent(token);
+}
+
 async function copyText(text, button) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -1719,7 +1737,7 @@ function renderHealth(root) {
 function renderAnalysisTab(tab) {
   activeAnalysisTab = tab;
   document.querySelectorAll('#analysisTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  $('analysisCsv').href = '/api/jobs/' + currentJobId + '/analysis/' + tab + '.csv';
+  $('analysisCsv').href = authUrl('/api/jobs/' + currentJobId + '/analysis/' + tab + '.csv');
   const root = $('analysisContent');
   root.replaceChildren();
   if (!analysisData) {
@@ -1937,7 +1955,7 @@ $('runBuilder').onclick = async () => {
       if (res.status === 'completed') {
         builderResult = await api('/api/generation-runs/' + currentBuilderRunId + '/result');
         $('builderResults').classList.add('show');
-        $('downloadDraft').href = '/api/generation-runs/' + currentBuilderRunId + '/export.md';
+        $('downloadDraft').href = authUrl('/api/generation-runs/' + currentBuilderRunId + '/export.md');
         $('downloadDraft').style.display = 'inline-flex';
         renderBuilderTab('draft');
         showToast('Gig draft created!', 'success');
@@ -2005,7 +2023,7 @@ function showSummary(job) {
   $('downloads').replaceChildren();
   for (const [label, href] of Object.entries(job.downloads || {})) {
     const a = el('a', 'button', label.toUpperCase() + ' download');
-    a.href = href;
+    a.href = authUrl(href);
     $('downloads').appendChild(a);
   }
 }
