@@ -34,7 +34,11 @@ const activeSessions = new Set<string>();
 // dropped by the browser and break persistent login.
 function cookieFlags(req: express.Request, maxAgeSeconds: number): string {
   const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
-  return `Path=/; HttpOnly; SameSite=Lax${isHttps ? "; Secure" : ""}; Max-Age=${maxAgeSeconds}`;
+  // Over HTTPS use SameSite=None so the cookie survives when the app is
+  // embedded in a cross-site iframe (hosted previews, dashboards). Browsers
+  // require Secure with SameSite=None, so plain HTTP keeps Lax instead.
+  const sameSite = isHttps ? "None; Secure" : "Lax";
+  return `Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAgeSeconds}`;
 }
 
 function generateToken(): string {

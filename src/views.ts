@@ -234,8 +234,44 @@ function detailMessage(d, fallback) {
   return x.message || x.msg || JSON.stringify(x);
 }
 
+var __memAuthToken = null;
+function tokenGet() {
+  try { var v = localStorage.getItem('gigcraft_auth_token'); if (v) return v; } catch (e) {}
+  try { var v2 = sessionStorage.getItem('gigcraft_auth_token'); if (v2) return v2; } catch (e) {}
+  return __memAuthToken;
+}
+function tokenSet(v) {
+  __memAuthToken = v || null;
+  try { localStorage.setItem('gigcraft_auth_token', v); } catch (e) {}
+  try { sessionStorage.setItem('gigcraft_auth_token', v); } catch (e) {}
+}
+function tokenClear() {
+  __memAuthToken = null;
+  try { localStorage.removeItem('gigcraft_auth_token'); } catch (e) {}
+  try { sessionStorage.removeItem('gigcraft_auth_token'); } catch (e) {}
+}
+// Accept a token handed over via the URL (?token=... or #token=...), which is
+// how the standalone /login page passes the session on when cookies and
+// storage are blocked (e.g. the app running inside a cross-site iframe).
+(function adoptTokenFromUrl() {
+  try {
+    var url = new URL(window.location.href);
+    var t = url.searchParams.get('token');
+    if (!t && window.location.hash) {
+      var m = window.location.hash.match(/token=([^&]+)/);
+      if (m) t = decodeURIComponent(m[1]);
+    }
+    if (t) {
+      tokenSet(t);
+      url.searchParams.delete('token');
+      var clean = url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '');
+      window.history.replaceState({}, '', clean);
+    }
+  } catch (e) {}
+})();
+
 async function api(url, opts = {}) {
-  const token = localStorage.getItem('gigcraft_auth_token');
+  const token = tokenGet();
   const headers = { ...(opts.headers || {}) };
   if (token && !headers['Authorization']) {
     headers['Authorization'] = 'Bearer ' + token;
@@ -255,7 +291,7 @@ async function api(url, opts = {}) {
 // Append the auth token to direct-navigation URLs (file downloads open in a
 // new top-level navigation where Authorization headers cannot be set).
 function authUrl(url) {
-  const token = localStorage.getItem('gigcraft_auth_token');
+  const token = tokenGet();
   if (!token) return url;
   const sep = url.includes('?') ? '&' : '?';
   return url + sep + 'token=' + encodeURIComponent(token);
@@ -284,8 +320,10 @@ function log(m) {
 }
 
 function saveState() {
-  if (currentState) localStorage.setItem('gigcraft-workflow', JSON.stringify(currentState));
-  else localStorage.removeItem('gigcraft-workflow');
+  try {
+    if (currentState) localStorage.setItem('gigcraft-workflow', JSON.stringify(currentState));
+    else localStorage.removeItem('gigcraft-workflow');
+  } catch (e) {}
 }
 
 function friendly(m) {
@@ -741,13 +779,13 @@ function initAuthGuard(onAuthSuccess) {
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
       try {
-        const token = localStorage.getItem('gigcraft_auth_token');
+        const token = tokenGet();
         await fetch('/api/auth/logout', {
           method: 'POST',
           headers: token ? { 'Authorization': 'Bearer ' + token } : {}
         });
       } catch {}
-      try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
+      tokenClear();
       showLock();
       showToast('System locked', 'info');
     };
@@ -774,7 +812,7 @@ function initAuthGuard(onAuthSuccess) {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success && data.token) {
-          try { localStorage.setItem('gigcraft_auth_token', data.token); } catch {}
+          tokenSet(data.token);
           submitBtn.innerHTML = '<span>Access Granted ✓</span>';
           submitBtn.style.background = 'var(--ok)';
           setTimeout(() => {
@@ -804,7 +842,7 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
-  const existingToken = localStorage.getItem('gigcraft_auth_token');
+  const existingToken = tokenGet();
   if (!existingToken) {
     showLock();
   } else {
@@ -816,7 +854,7 @@ function initAuthGuard(onAuthSuccess) {
       headers: { 'Authorization': 'Bearer ' + existingToken }
     }).then(r => r.json()).then(data => {
       if (!data || !data.authenticated) {
-        try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
+        tokenClear();
         showLock();
       }
     }).catch(() => {});
@@ -1239,8 +1277,44 @@ function detailMessage(d, fallback = 'Request failed') {
   return x.message || x.msg || JSON.stringify(x);
 }
 
+var __memAuthToken = null;
+function tokenGet() {
+  try { var v = localStorage.getItem('gigcraft_auth_token'); if (v) return v; } catch (e) {}
+  try { var v2 = sessionStorage.getItem('gigcraft_auth_token'); if (v2) return v2; } catch (e) {}
+  return __memAuthToken;
+}
+function tokenSet(v) {
+  __memAuthToken = v || null;
+  try { localStorage.setItem('gigcraft_auth_token', v); } catch (e) {}
+  try { sessionStorage.setItem('gigcraft_auth_token', v); } catch (e) {}
+}
+function tokenClear() {
+  __memAuthToken = null;
+  try { localStorage.removeItem('gigcraft_auth_token'); } catch (e) {}
+  try { sessionStorage.removeItem('gigcraft_auth_token'); } catch (e) {}
+}
+// Accept a token handed over via the URL (?token=... or #token=...), which is
+// how the standalone /login page passes the session on when cookies and
+// storage are blocked (e.g. the app running inside a cross-site iframe).
+(function adoptTokenFromUrl() {
+  try {
+    var url = new URL(window.location.href);
+    var t = url.searchParams.get('token');
+    if (!t && window.location.hash) {
+      var m = window.location.hash.match(/token=([^&]+)/);
+      if (m) t = decodeURIComponent(m[1]);
+    }
+    if (t) {
+      tokenSet(t);
+      url.searchParams.delete('token');
+      var clean = url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '');
+      window.history.replaceState({}, '', clean);
+    }
+  } catch (e) {}
+})();
+
 async function api(url, options = {}) {
-  const token = localStorage.getItem('gigcraft_auth_token');
+  const token = tokenGet();
   const headers = { ...(options.headers || {}) };
   if (token && !headers['Authorization']) {
     headers['Authorization'] = 'Bearer ' + token;
@@ -1260,7 +1334,7 @@ async function api(url, options = {}) {
 // Append the auth token to direct-navigation URLs (file downloads open in a
 // new top-level navigation where Authorization headers cannot be set).
 function authUrl(url) {
-  const token = localStorage.getItem('gigcraft_auth_token');
+  const token = tokenGet();
   if (!token) return url;
   const sep = url.includes('?') ? '&' : '?';
   return url + sep + 'token=' + encodeURIComponent(token);
@@ -2114,13 +2188,13 @@ function initAuthGuard(onAuthSuccess) {
   if (logoutBtn) {
     logoutBtn.onclick = async () => {
       try {
-        const token = localStorage.getItem('gigcraft_auth_token');
+        const token = tokenGet();
         await fetch('/api/auth/logout', {
           method: 'POST',
           headers: token ? { 'Authorization': 'Bearer ' + token } : {}
         });
       } catch {}
-      try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
+      tokenClear();
       showLock();
       showToast('System locked', 'info');
     };
@@ -2147,7 +2221,7 @@ function initAuthGuard(onAuthSuccess) {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success && data.token) {
-          try { localStorage.setItem('gigcraft_auth_token', data.token); } catch {}
+          tokenSet(data.token);
           submitBtn.innerHTML = '<span>Access Granted ✓</span>';
           submitBtn.style.background = 'var(--ok)';
           setTimeout(() => {
@@ -2177,7 +2251,7 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
-  const existingToken = localStorage.getItem('gigcraft_auth_token');
+  const existingToken = tokenGet();
   if (!existingToken) {
     showLock();
   } else {
@@ -2189,7 +2263,7 @@ function initAuthGuard(onAuthSuccess) {
       headers: { 'Authorization': 'Bearer ' + existingToken }
     }).then(r => r.json()).then(data => {
       if (!data || !data.authenticated) {
-        try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
+        tokenClear();
         showLock();
       }
     }).catch(() => {});
@@ -2287,6 +2361,10 @@ export const LOGIN_HTML = `<!doctype html>
 
 <script>
 (() => {
+  function tokenSet(v) {
+    try { localStorage.setItem('gigcraft_auth_token', v); } catch (e) {}
+    try { sessionStorage.setItem('gigcraft_auth_token', v); } catch (e) {}
+  }
   const form = document.getElementById('loginForm');
   const pwdInput = document.getElementById('passwordInput');
   const toggleBtn = document.getElementById('togglePwd');
@@ -2336,10 +2414,17 @@ export const LOGIN_HTML = `<!doctype html>
         submitBtn.innerHTML = '<span>Access Granted ✓</span>';
         submitBtn.style.background = 'var(--ok)';
         if (data.token) {
-          try { localStorage.setItem('gigcraft_auth_token', data.token); } catch {}
+          tokenSet(data.token);
         }
         setTimeout(() => {
-          window.location.href = redirectTarget;
+          // Hand the token to the target page through the URL as well: cookies
+          // and storage can both be unavailable when the app is embedded in a
+          // cross-site iframe, and the app adopts ?token= on load.
+          var target = redirectTarget;
+          if (data.token) {
+            target += (target.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(data.token);
+          }
+          window.location.href = target;
         }, 150);
       } else {
         submitBtn.disabled = false;
