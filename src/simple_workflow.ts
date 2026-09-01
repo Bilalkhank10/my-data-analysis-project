@@ -33,6 +33,17 @@ export class SimpleWorkflowRunner {
 
       await this.crawler.runJob(jobId);
 
+      // Propagate the crawl job's data-source warnings (e.g. the labelled
+      // sample fallback) into the workflow record so the UI can display a
+      // prominent banner instead of showing sample data silently.
+      const crawlJob = this.storage.getJob(jobId);
+      if (crawlJob?.warnings?.length) {
+        const currentFlow = this.storage.getSimpleWorkflow(workflowId);
+        this.storage.updateSimpleWorkflow(workflowId, {
+          warnings: Array.from(new Set([...(currentFlow?.warnings || []), ...crawlJob.warnings])),
+        });
+      }
+
       this.storage.updateSimpleWorkflow(workflowId, {
         stage: "understand",
         message: "Auditing keyword clusters, buyer intent, and competitor weaknesses...",

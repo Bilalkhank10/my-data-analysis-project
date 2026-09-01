@@ -263,6 +263,39 @@ function authUrl(url) {
 $('menuBtn').onclick = () => document.body.classList.toggle('nav-open');
 $('scrim').onclick = () => document.body.classList.remove('nav-open');
 
+// --- Data provenance: when the live crawl falls back to the labelled
+// illustrative sample, say so PROMINENTLY instead of showing sample data
+// silently.
+function _sampleWarning(job) {
+  const src = job.discovery_source || '';
+  const warns = (job.warnings || []).join(' ');
+  if (/illustrative sample|demo data/i.test(src)) return src;
+  if (/illustrative|simulated sample|live fiverr data was unavailable/i.test(warns)) return warns;
+  return null;
+}
+function showDataBanner(container, job) {
+  if (!container) return;
+  container.querySelectorAll('.data-banner').forEach(n => n.remove());
+  const sample = _sampleWarning(job || {});
+  const b = document.createElement('div');
+  b.className = 'data-banner' + (sample ? ' sample' : '');
+  b.textContent = sample
+    ? '\u26A0 SAMPLE DATA \u2014 live Fiverr fetch was unavailable, so these results are an illustrative sample, NOT real listings. Re-run when online to get real market data.'
+    : '\u2713 Live market data (fetched via the Jina Reader proxy).';
+  container.insertBefore(b, container.firstChild);
+}
+function renderJobWarnings(job) {
+  const box = $('warnings');
+  if (!box) return;
+  box.replaceChildren();
+  (job.warnings || []).forEach(w => {
+    const d = document.createElement('div');
+    d.className = 'warn-line';
+    d.textContent = '\u26A0 ' + w;
+    box.appendChild(d);
+  });
+}
+
 function setProgress(pct, title, text, stage) {
   $('progressBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
   $('progressPercent').textContent = Math.round(pct) + '%';
@@ -355,6 +388,7 @@ async function runWorkflow(inputs, resume) {
         setProgress(100, 'Your gig is ready', 'Review and copy each section into Fiverr.', 'ready');
         await sleep(280);
         renderResult(g, { markdown_url: s.markdown_url, job_id: s.job_id });
+        showDataBanner($('result'), s);
         currentState = null;
         saveState();
         $('progress').classList.remove('show');
@@ -1986,11 +2020,46 @@ async function pollJob() {
   }
 }
 
+// --- Data provenance: when the live crawl falls back to the labelled
+// illustrative sample, say so PROMINENTLY instead of showing sample data
+// silently.
+function _sampleWarning(job) {
+  const src = job.discovery_source || '';
+  const warns = (job.warnings || []).join(' ');
+  if (/illustrative sample|demo data/i.test(src)) return src;
+  if (/illustrative|simulated sample|live fiverr data was unavailable/i.test(warns)) return warns;
+  return null;
+}
+function showDataBanner(container, job) {
+  if (!container) return;
+  container.querySelectorAll('.data-banner').forEach(n => n.remove());
+  const sample = _sampleWarning(job || {});
+  const b = document.createElement('div');
+  b.className = 'data-banner' + (sample ? ' sample' : '');
+  b.textContent = sample
+    ? '\u26A0 SAMPLE DATA \u2014 live Fiverr fetch was unavailable, so these results are an illustrative sample, NOT real listings. Re-run when online to get real market data.'
+    : '\u2713 Live market data (fetched via the Jina Reader proxy).';
+  container.insertBefore(b, container.firstChild);
+}
+function renderJobWarnings(job) {
+  const box = $('warnings');
+  if (!box) return;
+  box.replaceChildren();
+  (job.warnings || []).forEach(w => {
+    const d = document.createElement('div');
+    d.className = 'warn-line';
+    d.textContent = '\u26A0 ' + w;
+    box.appendChild(d);
+  });
+}
+
 function showSummary(job) {
   enableResearchWorkspaces(true);
   $('summary').classList.add('show');
   $('summaryTitle').textContent = job.niche + ' results';
   $('summaryMeta').textContent = (job.success_count || 0) + ' successful · ' + (job.discovered_count || 0) + ' discovered';
+  showDataBanner($('summary'), job);
+  renderJobWarnings(job);
   $('downloads').replaceChildren();
   for (const [label, href] of Object.entries(job.downloads || {})) {
     const a = el('a', 'button', label.toUpperCase() + ' download');
