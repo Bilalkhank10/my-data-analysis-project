@@ -222,7 +222,7 @@ class OpenRouterClientTests(unittest.TestCase):
 
     def test_cost_estimator(self):
         self.assertAlmostEqual(
-            estimate_cost("google/gemini-3.7-flash", 1_000_000, 1_000_000),
+            estimate_cost("deepseek/deepseek-v4-flash-0731", 1_000_000, 1_000_000),
             2.25,
         )
 

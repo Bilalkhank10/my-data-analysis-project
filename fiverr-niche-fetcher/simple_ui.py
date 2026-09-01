@@ -12,24 +12,18 @@ SIMPLE_HTML = r"""<!doctype html>
   <meta name="color-scheme" content="light">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/boardroom.css">
 </head>
-<body>
-<div class="scrim" id="scrim"></div>
-<div class="app-shell">
-  <header class="topbar">
-    <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu">☰</button>
-    <a class="brand" href="/">
-      <span class="mark">G</span>
-      <div><strong class="brand-name">GigCraft</strong><small class="brand-sub">Studio</small></div>
-    </a>
-    <nav class="nav">
-      <a class="active" href="/"><span class="ico">✦</span>New draft</a>
-      <a href="/advanced"><span class="ico">▣</span>Lab</a>
-    </nav>
-    <div class="side-foot">
-      <div class="status-row"><span id="keyDot" class="dot"></span><span id="keyText">Checking AI…</span></div>
+<body class="design-4">
+<div class="d4-top">
+    <div class="d4-brand"><span class="d4-mark">G</span> GigCraft Studio</div>
+    <div class="d4-tabs">
+      <span class="on">Studio</span><a href="/advanced"><span>Lab</span></a>
     </div>
-  </header>
+    <div class="d4-user"><span id="keyDot" class="dot on" style="margin-right:6px; background:var(--ok); border-radius:50%; width:8px; height:8px; display:inline-block;"></span><span id="keyText">Checking AI...</span></div>
+  </div>
+  <div class="d4-shell">
+    <div class="d4-content">
 
   <div class="stage">
     <main class="canvas">
@@ -135,14 +129,15 @@ SIMPLE_HTML = r"""<!doctype html>
       </section>
     </main>
   </div>
+  </div>
 </div>
 <script>
 const $=id=>document.getElementById(id);let aiConfigured=false,currentState=null,lastInputs=null;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function detailMessage(d,fallback){const x=d&&d.detail;if(!x)return fallback;if(typeof x==='string')return x;if(Array.isArray(x))return x.map(i=>i.msg||i.message||JSON.stringify(i)).join('; ');return x.message||x.msg||JSON.stringify(x)}
 async function api(url,opts={}){const r=await fetch(url,opts);let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(detailMessage(d,'Request failed: '+r.status));return d}
-$('menuBtn').onclick=()=>document.body.classList.toggle('nav-open');
-$('scrim').onclick=()=>document.body.classList.remove('nav-open');
+
+
 
 function setProgress(pct,title,text,stage){
   $('progressBar').style.width=Math.max(0,Math.min(100,pct))+'%';

@@ -160,7 +160,7 @@ Open the `.env` file in Notepad and set:
 ```env
 OPENROUTER_API_KEY=YOUR_NEW_ROTATED_KEY
 OPENROUTER_MAX_COST_USD=0.10
-OPENROUTER_MODEL=google/gemini-3.7-flash
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash-0731
 OPENROUTER_EMBEDDING_MODEL=google/gemini-embedding-001
 OPENROUTER_DEEP_MODEL=anthropic/claude-sonnet-5
 ```

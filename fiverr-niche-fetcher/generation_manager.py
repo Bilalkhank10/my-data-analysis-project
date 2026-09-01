@@ -75,8 +75,8 @@ class GenerationManager:
             mode=mode,
             target_gig_url=target_gig_url,
             preferences=preferences,
-            primary_model=self.config.primary_model,
-            deep_model=self.config.deep_model,
+            primary_model=preferences.get("draft_model") or self.config.primary_model,
+            deep_model=preferences.get("refinement_model") or self.config.deep_model,
             max_cost_usd=self.config.max_cost_usd,
         )
         task = asyncio.create_task(

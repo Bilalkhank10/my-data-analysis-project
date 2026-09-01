@@ -71,11 +71,11 @@ def utc_now() -> str:
 
 
 def reader_url(target: str) -> str:
-    """Build a Jina Reader URL for a public page."""
+    """Return raw URL (bypassing Jina) since we use Firecrawl now."""
     target = target.strip()
     if not target.startswith(("http://", "https://")):
         target = "https://" + target
-    return f"https://r.jina.ai/{target}"
+    return target
 
 
 def ssl_context() -> ssl.SSLContext:
@@ -110,7 +110,7 @@ def is_retryable_transport(exc: BaseException) -> bool:
 @dataclass
 class FetcherSettings:
     max_concurrency: int = field(
-        default_factory=lambda: max(1, min(5, int(os.getenv("MAX_CONCURRENCY", "2"))))
+        default_factory=lambda: max(1, min(5, int(os.getenv("MAX_CONCURRENCY", "1"))))
     )
     delay_seconds: float = field(
         default_factory=lambda: max(
@@ -122,7 +122,7 @@ class FetcherSettings:
     )
     search_page_delay_seconds: float = field(
         default_factory=lambda: max(
-            0.0, min(10.0, float(os.getenv("SEARCH_PAGE_DELAY_SECONDS", "0.75")))
+            0.0, min(10.0, float(os.getenv("SEARCH_PAGE_DELAY_SECONDS", "2.0")))
         )
     )
     retry_count: int = field(
@@ -216,6 +216,9 @@ class GigRecord:
     json_ld: list[dict[str, Any]] = field(default_factory=list)
     raw_visible_text: str | None = None
     error: str | None = None
+    raw_state: dict[str, Any] = field(default_factory=dict)
+    field_sources: dict[str, str] = field(default_factory=dict)
+    healed_fields: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -478,7 +481,7 @@ def parse_search_page(
             None,
         )
         rating_match = re.search(
-            r"\*\*([1-5](?:\.\d)?)\*\*\s*\(([\d,]+)", segment
+            r"\*{0,2}([1-5](?:\.\d)?)\*{0,2}\s*\(([\d,]+)", segment
         )
         price_match = re.search(r"(?:From|Starting at)\s*\$\s*([\d,.]+)", segment, re.I)
         sponsored = bool(re.search(r"(?im)^\s*(?:Ad|Promoted)\s*$", segment))
@@ -534,7 +537,7 @@ def parse_search_page(
 
 
 def parse_packages_from_markdown(markdown: str) -> tuple[list[dict[str, Any]], str | None]:
-    section = _markdown_heading_section(markdown, r"^##\s+Compare packages\s*$")
+    section = _markdown_heading_section(markdown, r"^(?:#{1,3}\s+)?(?:Compare packages|Packages|Pricing)\s*$")
     packages: list[dict[str, Any]] = []
     if section:
         table_lines = [line.strip() for line in section.splitlines() if line.strip().startswith("|")]
@@ -591,8 +594,8 @@ def parse_packages_from_markdown(markdown: str) -> tuple[list[dict[str, Any]], s
         if selected:
             name, block = selected.group(1).title(), selected.group(2)
             price_match = re.search(r"\$\s*([\d,.]+)", block)
-            delivery_match = re.search(r"\*\*([^*]*delivery)\*\*", block, re.I)
-            revision_match = re.search(r"\*\*([^*]*Revision[^*]*)\*\*", block, re.I)
+            delivery_match = re.search(r"\*{0,2}([a-zA-Z0-9 -]*delivery)\*{0,2}", block, re.I)
+            revision_match = re.search(r"\*{0,2}([a-zA-Z0-9 -]*Revision[a-zA-Z0-9 -]*)\*{0,2}", block, re.I)
             features = [
                 _clean_inline(match.group(1))
                 for match in re.finditer(r"(?m)^\*\s+(.+)$", block)
@@ -626,7 +629,7 @@ def parse_faqs_from_markdown(markdown: str) -> tuple[list[dict[str, str]], str |
     # Match any heading level (# / ## / ###) with common FAQ label variants:
     # "FAQ", "FAQs", "Frequently Asked Question", "Frequently Asked Questions"
     section = _markdown_heading_section(
-        markdown, r"^#{1,3}\s+(?:FAQs?|Frequently Asked Questions?)\s*$"
+        markdown, r"^(?:#{1,3}\s+|\*\*)?(?:FAQs?|Frequently Asked Questions?)(?:\*\*)?\s*$"
     )
     if not section:
         return [], None
@@ -707,14 +710,16 @@ def parse_reviews_from_markdown(markdown: str) -> tuple[dict[str, Any], list[dic
     if not section:
         return {}, [], None
 
-    total_match = re.search(r"##\s+([\d,]+)\s+reviews?", section, re.I)
-    overall_match = re.search(r"\n\*\*([1-5](?:\.\d)?)\*\*\s*\n", section)
+    total_match = re.search(r"^(?:#{1,3}\s+)?([\d,]+)\s+reviews?", section, re.I | re.M)
+    if not total_match:
+        total_match = re.search(r"Reviews\s*\n\s*\(([\d,]+)\)", section, re.I)
+    overall_match = re.search(r"\n\*{0,2}([1-5](?:\.\d)?)\*{0,2}\s*\n", section)
     stars: dict[str, int] = {}
     for star, count in re.findall(r"([1-5])\s+Stars?\s*\(([\d,]+)\)", section, re.I):
         stars[star] = _to_int(count) or 0
     breakdown: dict[str, float] = {}
     for label, value in re.findall(
-        r"(?m)^\*\s+([^\n*]+?)\s+\*\*([1-5](?:\.\d)?)\*\*\s*$", section
+        r"(?m)^(?:[\*\-]\s+)?(Seller communication level|Quality of delivery|Value of delivery)\s*\*{0,2}([1-5](?:\.\d)?)\*{0,2}\s*$", section, re.I
     ):
         breakdown[_clean_inline(label)] = float(value)
     files_match = re.search(r"Only show reviews with files\s*\(([\d,]+)\)", section, re.I)
@@ -892,7 +897,11 @@ def parse_gig_page(
             prices.append(price)
         currency = currency or offer.get("priceCurrency")
 
-    packages, packages_text_md = parse_packages_from_markdown(source_markdown) if source_markdown else ([], None)
+    try:
+        packages, packages_text_md = parse_packages_from_markdown(source_markdown) if source_markdown else ([], None)
+    except Exception:
+        packages, packages_text_md = [], None
+
     package_prices = [float(item["price"]) for item in packages if item.get("price") is not None]
     starting_price = min(prices + package_prices) if prices or package_prices else None
     if starting_price is None:
@@ -903,17 +912,23 @@ def parse_gig_page(
 
     seller_name = _regex_group(r"Get to know\s+([^\n\r]+)", visible_text)
     if not seller_name:
+        seller_name = _regex_group(r"About the Seller\s*\n+([^\n\r]+)", visible_text)
+    if not seller_name:
         for key in ("seller", "provider", "author", "brand"):
             seller_name = _entity_name(_first_value(primary_nodes, (key,)))
             if seller_name:
                 break
+    if not seller_name and page_title:
+        title_match = re.search(r"\s+by\s+([^|]+)\|\s*Fiverr\s*$", page_title, flags=re.I)
+        if title_match:
+            seller_name = title_match.group(1).strip()
     seller_level = _regex_group(
         r"\b(Level\s*[12]|Top Rated|Vetted Pro|New Seller)\b", visible_text[:12000]
     )
-    seller_country = _regex_group(r"(?:^|\n)From\s*(?:\n\s*)?([^\n\r]+)", visible_text)
-    member_since = _regex_group(r"Member since\s*(?:\n\s*)?([^\n\r]+)", visible_text)
-    response_time = _regex_group(r"Avg\.? response time\s*:?\s*(?:\n\s*)?([^\n\r]+)", visible_text)
-    last_delivery = _regex_group(r"Last delivery\s*(?:\n\s*)?([^\n\r]+)", visible_text)
+    seller_country = _regex_group(r"(?:^|\n)[^\w]*From\s*(?:\n\s*)?([^\n\r]+)", visible_text)
+    member_since = _regex_group(r"[^\w]*Member since\s*(?:\n\s*)?([^\n\r]+)", visible_text)
+    response_time = _regex_group(r"[^\w]*Avg\.? response time\s*:?\s*(?:\n\s*)?([^\n\r]+)", visible_text)
+    last_delivery = _regex_group(r"[^\w]*Last delivery\s*(?:\n\s*)?([^\n\r]+)", visible_text)
 
     about = _section(
         visible_text,
@@ -925,10 +940,19 @@ def parse_gig_page(
         ("Compare packages",),
         ("Other Data Visualization Services", "Recommended for you", "Reviews", "FAQ"),
     )
-    faqs, faq_text = parse_faqs_from_markdown(source_markdown) if source_markdown else ([], None)
-    review_summary, visible_reviews, reviews_text_md = (
-        parse_reviews_from_markdown(source_markdown) if source_markdown else ({}, [], None)
-    )
+
+    try:
+        faqs, faq_text = parse_faqs_from_markdown(source_markdown) if source_markdown else ([], None)
+    except Exception:
+        faqs, faq_text = [], None
+
+    try:
+        review_summary, visible_reviews, reviews_text_md = (
+            parse_reviews_from_markdown(source_markdown) if source_markdown else ({}, [], None)
+        )
+    except Exception:
+        review_summary, visible_reviews, reviews_text_md = {}, [], None
+
     reviews_text = reviews_text_md or _section(
         visible_text,
         ("Reviews",),
@@ -957,7 +981,51 @@ def parse_gig_page(
         for item in media_urls
         if any(token in item for token in ("/gigs/", "/gigs2/", "t_delivery", "attachments/delivery"))
     ]
-    hourly_match = re.search(r"\*\*\$\s*([\d,.]+)\*\*\s*/hour", source_markdown, re.I)
+    hourly_match = re.search(r"\*{0,2}\$\s*([\d,.]+)\*{0,2}\s*(?:/hour|per hour|hourly)", source_markdown, re.I)
+
+    perseus_data = {}
+    script_tag = soup.find("script", id="perseus-initial-props")
+    if script_tag and script_tag.string:
+        try:
+            import json
+            perseus_data = json.loads(script_tag.string)
+        except Exception:
+            pass
+
+    # If we have pristine backend JSON, use it instead of the brittle markdown parsers!
+    if perseus_data and "faq" in perseus_data and "questionsAndAnswers" in perseus_data["faq"]:
+        faqs = [
+            {"question": q.get("question", ""), "answer": q.get("answer", "")} 
+            for q in perseus_data["faq"].get("questionsAndAnswers", [])
+        ]
+        
+    field_sources = {}
+    healed_fields = []
+    
+    # 1. Fallback / Hardcode from JSON State (Bulletproof)
+    if perseus_data:
+        sc = perseus_data.get("sellerCard", {})
+        if not rating and "rating" in sc:
+            rating = sc.get("rating")
+            field_sources["rating"] = "json_state"
+            healed_fields.append("rating")
+        if not review_count and "ratingsCount" in sc:
+            review_count = sc.get("ratingsCount")
+            field_sources["review_count"] = "json_state"
+            healed_fields.append("review_count")
+        if not seller_country and "countryCode" in sc:
+            seller_country = sc.get("countryCode")
+            field_sources["seller_country"] = "json_state"
+        
+        pkgs = perseus_data.get("packages", {}).get("packageList", [])
+        if pkgs and not packages:
+            packages = [{"name": p.get("title"), "price": p.get("price", 0)/100.0, "description": p.get("description"), "delivery_time": str(p.get("duration", ""))} for p in pkgs]
+            field_sources["packages"] = "json_state"
+            healed_fields.append("packages")
+    
+    # Track existing sources implicitly
+    if not field_sources.get("packages") and packages: field_sources["packages"] = "markdown_regex"
+    if not field_sources.get("about_text") and about: field_sources["about_text"] = "markdown_regex"
 
     return GigRecord(
         url=url,
@@ -991,6 +1059,9 @@ def parse_gig_page(
         gallery_count=len(_unique(gallery_urls)),
         has_video=("video/upload" in source_markdown or bool(re.search(r"\[Video\s+\d+", source_markdown))),
         json_ld=json_ld[:25],
+        raw_state=perseus_data,
+        field_sources=field_sources,
+        healed_fields=healed_fields,
         raw_visible_text=visible_text.strip(),
     )
 
@@ -1010,6 +1081,7 @@ class FiverrNicheFetcher:
             "Accept": "text/markdown",
             "User-Agent": "Mozilla/5.0 (compatible; GigCraft/1.0)",
             "X-Return-Format": "markdown",
+            "X-No-Cache": "true",
             "Connection": "close",
         }
 
@@ -1034,20 +1106,46 @@ class FiverrNicheFetcher:
 
     async def _get_text(self, client: httpx.AsyncClient, url: str) -> str:
         last_error: Exception | None = None
-        attempts = self.settings.retry_count + 1
+        attempts = max(3, self.settings.retry_count + 1)
+        api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
+        
         for attempt in range(attempts):
             try:
-                response = await client.get(url)
-                if response.status_code in {429, 500, 502, 503, 504}:
-                    raise httpx.HTTPStatusError(
-                        f"Retryable status {response.status_code}",
-                        request=response.request,
-                        response=response,
-                    )
-                response.raise_for_status()
-                if len(response.text.strip()) < 200:
-                    raise FetcherError("Reader returned an empty or unusable response.")
-                return response.text
+                await asyncio.sleep(2.0)
+                if api_key:
+                    payload = {"url": url, "formats": ["markdown"]}
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    }
+                    response = await client.post("https://api.firecrawl.dev/v2/scrape", json=payload, headers=headers, timeout=60.0)
+                    if response.status_code in {429, 500, 502, 503, 504}:
+                        raise httpx.HTTPStatusError(
+                            f"Retryable status {response.status_code}",
+                            request=response.request,
+                            response=response,
+                        )
+                    response.raise_for_status()
+                    data = response.json()
+                    if not data.get("success"):
+                        raise FetcherError(f"Firecrawl failed: {data.get('error')}")
+                    
+                    text = data.get("data", {}).get("markdown", "")
+                else:
+                    jina_url = f"https://r.jina.ai/{url}"
+                    response = await client.get(jina_url, headers={"X-Return-Format": "markdown"}, timeout=60.0)
+                    if response.status_code in {429, 500, 502, 503, 504}:
+                        raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
+                    response.raise_for_status()
+                    text = response.text
+                if len(text.strip()) < 200:
+                    raise FetcherError("Firecrawl returned an empty or unusable response.")
+                
+                lower_text = text.lower()
+                if "it needs a human touch" in lower_text or "just a moment..." in lower_text or "access to this page has been denied" in lower_text:
+                    raise FetcherError("Fiverr captcha detected (human touch / just a moment)")
+                    
+                return text
             except Exception as exc:
                 last_error = exc
                 retryable = is_retryable_transport(exc) or isinstance(
@@ -1163,11 +1261,63 @@ class FiverrNicheFetcher:
         source = f"https://{parsed.netloc}{parsed.path}"
         reader_endpoint = reader_url(source)  # use module-level helper for protocol normalization
         try:
-            markdown = (await self._get_text(client, reader_endpoint)).strip()
+            api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
+            markdown, real_html = "", ""
+            
+            attempts = max(3, self.settings.retry_count + 1)
+            for attempt in range(attempts):
+                try:
+                    await asyncio.sleep(2.0)
+                    
+                    if api_key:
+                        # Paid Route
+                        payload = {"url": source, "formats": ["markdown", "html", "rawHtml"]}
+                        headers = {
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        }
+                        response = await client.post("https://api.firecrawl.dev/v2/scrape", json=payload, headers=headers, timeout=90.0)
+                        if response.status_code in {429, 500, 502, 503, 504}:
+                            raise httpx.HTTPStatusError(f"Retryable status {response.status_code}", request=response.request, response=response)
+                        response.raise_for_status()
+                        result = response.json()
+                        if not result.get("success"):
+                            raise FetcherError(f"Firecrawl failed: {result.get('error')}")
+                        data = result.get("data", {})
+                        markdown = data.get("markdown", "").strip()
+                        real_html = data.get("rawHtml") or data.get("html", "")
+                    else:
+                        # Free Route (Jina AI)
+                        jina_url = f"https://r.jina.ai/{source}"
+                        
+                        # Get HTML for JSON state
+                        h_res = await client.get(jina_url, headers={"X-Return-Format": "html"}, timeout=90.0)
+                        if h_res.status_code == 429:
+                            raise httpx.HTTPStatusError("Rate limited", request=h_res.request, response=h_res)
+                        real_html = h_res.text
+                        
+                        # Get Markdown for text parsing
+                        m_res = await client.get(jina_url, headers={"X-Return-Format": "markdown"}, timeout=90.0)
+                        markdown = m_res.text
+
+                    if not real_html and not markdown:
+                        raise FetcherError("Scraper returned empty data")
+                        
+                    break
+                except Exception as exc:
+                    if attempt >= attempts - 1 or not (is_retryable_transport(exc) or isinstance(exc, httpx.HTTPStatusError) or isinstance(exc, FetcherError)):
+                        raise
+                    retry_after = exc.response.headers.get("Retry-After") if isinstance(exc, httpx.HTTPStatusError) else None
+                    wait = float(retry_after) if retry_after else self.settings.retry_base_delay_seconds * (2**attempt)
+                    await asyncio.sleep(min(wait, 30.0))
+                
             title = _reader_title(markdown, url)
             visible_text = _markdown_to_text(markdown)
+            
             media_urls = _unique(html_lib.unescape(match) for match in CLOUDINARY_PATTERN.findall(markdown))[:150]
-            synthetic_html = (
+            
+            # Use real HTML if available, otherwise synthetic
+            html_content = real_html if real_html else (
                 "<html><body><h1>"
                 + html_lib.escape(title)
                 + "</h1>"
@@ -1177,14 +1327,67 @@ class FiverrNicheFetcher:
                 )
                 + "</body></html>"
             )
-            return parse_gig_page(
+            
+            record = parse_gig_page(
                 url,
-                synthetic_html,
+                html_content,
                 visible_text,
                 title,
                 fetch_method="reader",
                 source_markdown=markdown,
             )
+            
+            # TRUE AI AUTO-HEALING
+            # If the backend JSON is completely missing and the standard parsers failed
+            # to extract packages, we trigger the LLM to read the raw page text like a human.
+            if not record.raw_state and not record.packages and len(visible_text) > 500:
+                try:
+                    import os
+                    if os.getenv("OPENROUTER_API_KEY"):
+                        from openrouter_client import OpenRouterClient, OpenRouterConfig
+                        import json
+                        
+                        client = OpenRouterClient(OpenRouterConfig())
+                        schema = {
+                            "type": "object",
+                            "properties": {
+                                "packages": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {"type": "string"},
+                                            "price": {"type": "number"},
+                                            "description": {"type": "string"},
+                                            "delivery_time": {"type": "string"}
+                                        },
+                                        "required": ["name", "price", "description", "delivery_time"],
+                                        "additionalProperties": False
+                                    }
+                                }
+                            },
+                            "required": ["packages"],
+                            "additionalProperties": False
+                        }
+                        
+                        # Ask the AI to parse the messy visible text
+                        result, _, _ = await client.chat_json(
+                            messages=[
+                                {"role": "system", "content": "You are a data extractor. Parse the Fiverr gig pricing packages from the following text."},
+                                {"role": "user", "content": visible_text[:15000]}
+                            ],
+                            schema_name="fiverr_packages",
+                            schema=schema,
+                            temperature=0.0
+                        )
+                        
+                        if result and result.get("packages"):
+                            record.packages = result["packages"]
+                            record.error = "HEALED_BY_AI"
+                except Exception as ai_exc:
+                    print(f"AI Healing failed for {url}: {ai_exc}")
+                    
+            return record
         except Exception as exc:
             path = [part for part in parsed.path.split("/") if part]
             return GigRecord(

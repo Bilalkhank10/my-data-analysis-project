@@ -269,7 +269,7 @@ class Phase4Tests(unittest.TestCase):
             storage, job_id, url = self._fixture(directory)
             config = OpenRouterConfig(
                 api_key="sk-or-test-placeholder",
-                primary_model="google/gemini-3.7-flash",
+                primary_model="deepseek/deepseek-v4-flash-0731",
                 deep_model="anthropic/unavailable-deep-model",
                 max_cost_usd=1,
                 max_output_tokens=1800,
@@ -325,7 +325,7 @@ class Phase4Tests(unittest.TestCase):
             storage, job_id, url = self._fixture(directory)
             config = OpenRouterConfig(
                 api_key="sk-or-test-placeholder",
-                primary_model="google/gemini-3.7-flash",
+                primary_model="deepseek/deepseek-v4-flash-0731",
                 deep_model="anthropic/unavailable-deep-model",
                 max_cost_usd=1,
                 max_output_tokens=1800,

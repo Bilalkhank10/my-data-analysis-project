@@ -25,8 +25,8 @@ _JITTER = 0.5
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MODEL_PRICES_PER_MILLION: dict[str, tuple[float, float]] = {
-    "google/gemini-3.7-flash": (0.375, 1.875),
-    "google/gemini-3.7-flash:batch": (0.1875, 0.9375),
+    "deepseek/deepseek-v4-flash-0731": (0.375, 1.875),
+    "deepseek/deepseek-v4-flash-0731:batch": (0.1875, 0.9375),
     "google/gemini-embedding-001": (0.15, 0.0),
     "anthropic/claude-sonnet-5": (2.0, 10.0),
     "anthropic/claude-sonnet-5:batch": (1.0, 5.0),
@@ -89,7 +89,7 @@ def _public_error_text(body: Any) -> str:
 class OpenRouterConfig:
     api_key: str
     base_url: str = OPENROUTER_BASE_URL
-    primary_model: str = "google/gemini-3.7-flash"
+    primary_model: str = "deepseek/deepseek-v4-flash-0731"
     embedding_model: str = "google/gemini-embedding-001"
     deep_model: str = "anthropic/claude-sonnet-5"
     max_cost_usd: float = 2.0
@@ -110,7 +110,7 @@ class OpenRouterConfig:
         return cls(
             api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
             base_url=os.getenv("OPENROUTER_BASE_URL", OPENROUTER_BASE_URL).rstrip("/"),
-            primary_model=os.getenv("OPENROUTER_MODEL", "google/gemini-3.7-flash"),
+            primary_model=os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-0731"),
             embedding_model=os.getenv(
                 "OPENROUTER_EMBEDDING_MODEL", "google/gemini-embedding-001"
             ),

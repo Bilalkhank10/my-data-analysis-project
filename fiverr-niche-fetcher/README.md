@@ -85,7 +85,7 @@ Competitor text is context only; prompts explicitly prohibit verbatim copying.
 ## Default models
 
 ```text
-Draft:      google/gemini-3.7-flash
+Draft:      deepseek/deepseek-v4-flash-0731
 Embedding:  google/gemini-embedding-001  (Phase 3)
 Refinement: anthropic/claude-sonnet-5
 ```
@@ -152,7 +152,7 @@ Restart `run.bat`/`run.sh` after editing `.env`. Without a key, Phases 1–2 and
 
 ```env
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=google/gemini-3.7-flash
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash-0731
 OPENROUTER_EMBEDDING_MODEL=google/gemini-embedding-001
 OPENROUTER_DEEP_MODEL=anthropic/claude-sonnet-5
 OPENROUTER_MAX_COST_USD=2.00

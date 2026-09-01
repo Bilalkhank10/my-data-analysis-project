@@ -637,10 +637,12 @@ class GigBuilder:
         messages = self._messages(context)
         primary_tokens = estimate_tokens(json.dumps(messages, ensure_ascii=False))
         primary_output = 1600 if mode == "test" else max(4000, self.config.max_output_tokens)
-        estimate = estimate_cost(self.config.primary_model, primary_tokens, primary_output)
+        primary_model = preferences.get("draft_model") or self.config.primary_model
+        deep_model = preferences.get("refinement_model") or self.config.deep_model
+        estimate = estimate_cost(primary_model, primary_tokens, primary_output)
         if mode == "deep":
             estimate += estimate_cost(
-                self.config.deep_model,
+                deep_model,
                 max(1000, primary_tokens // 2),
                 max(4000, self.config.max_output_tokens),
             )
@@ -654,8 +656,8 @@ class GigBuilder:
             "estimated_cost_usd": round(estimate, 6),
             "cost_cap_usd": self.config.max_cost_usd,
             "models": {
-                "draft": self.config.primary_model,
-                "refinement": self.config.deep_model if mode == "deep" else None,
+                "draft": primary_model,
+                "refinement": deep_model if mode == "deep" else None,
             },
             "planned_outputs": [
                 "3 positioning options",
@@ -697,10 +699,12 @@ class GigBuilder:
             await _maybe_await(progress({"stage": "building evidence context", "progress_percent": 10}))
         max_tokens = 1600 if mode == "test" else max(4000, self.config.max_output_tokens)
         warnings: list[str] = []
+        primary_model = preferences.get("draft_model") or self.config.primary_model
+        deep_model = preferences.get("refinement_model") or self.config.deep_model
         draft, draft_model = await self._chat_with_model_fallback(
             kind="gig_generation_draft",
-            preferred_model=self.config.primary_model,
-            fallback_model=self.config.deep_model,
+            preferred_model=primary_model,
+            fallback_model=deep_model,
             messages=self._messages(context),
             max_tokens=max_tokens,
             tracker=tracker,
@@ -738,9 +742,9 @@ class GigBuilder:
             "mode": mode,
             "provider": "openrouter",
             "models": {
-                "requested_draft": self.config.primary_model,
+                "requested_draft": primary_model,
                 "draft": draft_model,
-                "requested_refinement": self.config.deep_model if mode == "deep" else None,
+                "requested_refinement": deep_model if mode == "deep" else None,
                 "actual_refinement": refinement_model,
             },
             "methodology": {
