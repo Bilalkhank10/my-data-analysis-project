@@ -6,7 +6,6 @@ import path from "node:path";
 import { csvCell, toCsv } from "../src/csv.js";
 import { securityHeaders } from "../src/security.js";
 import { RateLimiter } from "../src/rate_limit.js";
-import { signDownload, verifyDownloadSignature, withSignedDownloads } from "../src/downloads.js";
 import { Storage } from "../src/storage.js";
 
 // ---------------------------------------------------------------------------
@@ -90,39 +89,8 @@ test("rate limiter enforces per-key window limits", () => {
   limiter.sweep(t0 + 120_000);
 });
 
-// ---------------------------------------------------------------------------
-// Signed download URLs (replace query-string session tokens)
-// ---------------------------------------------------------------------------
 
-test("signed download URLs: roundtrip, expiry, filename binding, garbage", () => {
-  const secret = "test-secret";
-  const now = 1_700_000_000_000;
-  const url = signDownload("job_1-gigs.json", secret, 3600, now);
-  assert.ok(url.startsWith("/download/job_1-gigs.json?dl="));
-  const dl = url.split("dl=")[1];
 
-  assert.equal(verifyDownloadSignature("job_1-gigs.json", dl, secret, now + 1000), true);
-  // expired
-  assert.equal(verifyDownloadSignature("job_1-gigs.json", dl, secret, now + 3_601_000), false);
-  // bound to filename
-  assert.equal(verifyDownloadSignature("other-gigs.csv", dl, secret, now + 1000), false);
-  // wrong secret
-  assert.equal(verifyDownloadSignature("job_1-gigs.json", dl, "other-secret", now + 1000), false);
-  // garbage
-  for (const bad of [undefined, "", "abc", "123", "123.deadbeef", "notanum.sig"]) {
-    assert.equal(verifyDownloadSignature("job_1-gigs.json", bad, secret, now), false);
-  }
-});
-
-test("withSignedDownloads rewrites job download links with signatures", () => {
-  const secret = "s";
-  const job = { id: "j1", downloads: { json: "/download/j1-gigs.json", csv: "/download/j1-gigs.csv" } };
-  const out = withSignedDownloads(job, secret);
-  assert.ok(out.downloads.json?.includes("?dl="));
-  assert.ok(out.downloads.csv?.includes("?dl="));
-  const dl = out.downloads.json!.split("dl=")[1];
-  assert.equal(verifyDownloadSignature("j1-gigs.json", dl, secret), true);
-});
 
 // ---------------------------------------------------------------------------
 // Persistence (node:sqlite write-through)

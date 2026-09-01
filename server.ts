@@ -3,7 +3,6 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import crypto from "crypto";
 import { storage } from "./src/storage.js";
 import { MarketAnalyzer } from "./src/market_analyzer.js";
 import { crawlerManager } from "./src/crawler.js";
@@ -12,9 +11,8 @@ import { simpleWorkflowManager } from "./src/simple_workflow.js";
 import { readerFetcher } from "./src/fiverr_fetcher.js";
 import { csvCell } from "./src/csv.js";
 import { securityHeaders } from "./src/security.js";
-import { verifyDownloadSignature, withSignedDownloads } from "./src/downloads.js";
-import { loginLimiter, apiLimiter } from "./src/rate_limit.js";
-import { SIMPLE_HTML, INDEX_HTML, LOGIN_HTML } from "./src/views.js";
+import { apiLimiter } from "./src/rate_limit.js";
+import { SIMPLE_HTML, INDEX_HTML } from "./src/views.js";
 
 // Attach the persistent reader cache so repeat crawls of the same niche
 // within the TTL don't burn Jina quota.
@@ -26,92 +24,6 @@ readerFetcher.readerCache = {
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-// No hardcoded password/secret fallbacks: generate an ephemeral random secret
-// on boot if AUTH_SECRET is unset, and require APP_PASSWORD to be configured.
-// If it is missing, fall back to a random per-boot password printed to the
-// server log so access is never silently wide-open with a known default.
-const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString("hex");
-const APP_PASSWORD = process.env.APP_PASSWORD || crypto.randomBytes(12).toString("base64url");
-if (!process.env.APP_PASSWORD) {
-  console.warn(
-    "[security] APP_PASSWORD is not set. A temporary password was generated for this session:\n" +
-      `           ${APP_PASSWORD}\n` +
-      "           Set APP_PASSWORD in your environment to use a stable password."
-  );
-}
-const activeSessions = new Set<string>();
-
-// Cookies are marked Secure only when the request arrived over HTTPS. Local
-// and LAN access is typically plain HTTP, where a Secure cookie would be
-// dropped by the browser and break persistent login.
-function cookieFlags(req: express.Request, maxAgeSeconds: number): string {
-  const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
-  return `Path=/; HttpOnly; SameSite=Lax${isHttps ? "; Secure" : ""}; Max-Age=${maxAgeSeconds}`;
-}
-
-function generateToken(): string {
-  const timestamp = Date.now();
-  const random = crypto.randomBytes(16).toString("hex");
-  const payload = `${timestamp}:${random}`;
-  const signature = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("hex");
-  const token = `${payload}:${signature}`;
-  activeSessions.add(token);
-  return token;
-}
-
-function verifyToken(token: string | null): boolean {
-  if (!token) return false;
-  if (activeSessions.has(token)) return true;
-  try {
-    const parts = token.split(":");
-    if (parts.length !== 3) return false;
-    const [tsStr, random, signature] = parts;
-    const timestamp = parseInt(tsStr, 10);
-    if (isNaN(timestamp)) return false;
-    // 30 days valid
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    if (Date.now() - timestamp > thirtyDaysMs) return false;
-    const payload = `${timestamp}:${random}`;
-    const expectedSig = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("hex");
-    if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
-      activeSessions.add(token);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
-
-function getCookie(req: express.Request, name: string): string | null {
-  const cookieHeader = req.headers.cookie;
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function isAuthenticated(req: express.Request): boolean {
-  const cookieToken = getCookie(req, "auth_token");
-  if (cookieToken && verifyToken(cookieToken)) return true;
-
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const bearerToken = authHeader.substring(7).trim();
-    if (bearerToken && verifyToken(bearerToken)) return true;
-  }
-
-  const customHeader = req.headers["x-auth-token"];
-  if (typeof customHeader === "string" && verifyToken(customHeader)) {
-    return true;
-  }
-
-  // NOTE: session tokens are no longer accepted via ?token= query string —
-  // tokens in URLs leak through logs and referrers. File downloads use
-  // short-lived SIGNED URLs instead (see signDownload below).
-
-  return false;
-}
-
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
@@ -121,7 +33,7 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Rate limiting: general API + strict limit on the login endpoint.
+// Rate limiting: general API limit per IP (brute-force hammering guard).
 app.use("/api", apiLimiter.middleware);
 
 // Return a clean JSON error (instead of an Express HTML stack trace) when the
@@ -178,65 +90,6 @@ function resolveDownloadPath(filename: string): string | null {
 // Serve static assets (publicly available for stylesheets, icons, fonts)
 app.use("/static", express.static(STATIC_DIR));
 
-// Authentication Endpoints
-function passwordMatches(input: string): boolean {
-  const a = Buffer.from(input.trim());
-  const b = Buffer.from(APP_PASSWORD);
-  // Constant-time comparison; lengths differing still do a compare against a
-  // dummy buffer to avoid leaking length via timing.
-  const ref = a.length === b.length ? b : Buffer.alloc(a.length);
-  try {
-    return a.length === b.length && crypto.timingSafeEqual(a, ref);
-  } catch {
-    return false;
-  }
-}
-
-app.post("/api/auth/login", loginLimiter.middleware, (req, res) => {
-  const { password } = req.body || {};
-  if (typeof password === "string" && passwordMatches(password)) {
-    const token = generateToken();
-    res.setHeader("Set-Cookie", `auth_token=${token}; ${cookieFlags(req, 2592000)}`);
-    res.json({ success: true, token, detail: "Authenticated successfully" });
-  } else {
-    res.status(401).json({ success: false, detail: "Incorrect password. Please try again." });
-  }
-});
-
-app.get("/api/auth/status", (req, res) => {
-  res.json({
-    authenticated: isAuthenticated(req),
-    configured: true,
-  });
-});
-
-app.post("/api/auth/logout", (req, res) => {
-  const cookieToken = getCookie(req, "auth_token");
-  if (cookieToken) {
-    activeSessions.delete(cookieToken);
-  }
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const bearerToken = authHeader.substring(7).trim();
-    if (bearerToken) activeSessions.delete(bearerToken);
-  }
-  const customHeader = req.headers["x-auth-token"];
-  if (typeof customHeader === "string") {
-    activeSessions.delete(customHeader);
-  }
-  if (typeof req.query.token === "string") {
-    activeSessions.delete(req.query.token);
-  }
-  res.setHeader("Set-Cookie", `auth_token=; ${cookieFlags(req, 0)}`);
-  res.json({ success: true });
-});
-
-// HTML Login Route
-app.get("/login", (req, res) => {
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(LOGIN_HTML);
-});
-
 // HTML Application Routes
 app.get("/", (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -248,26 +101,6 @@ app.get("/advanced", (req, res) => {
   res.send(INDEX_HTML);
 });
 
-// API Authentication Guard
-app.use("/api", (req, res, next) => {
-  // Whitelist public endpoints
-  if (
-    req.path === "/health" ||
-    req.path === "/auth/login" ||
-    req.path === "/auth/status" ||
-    req.path === "/auth/logout"
-  ) {
-    next();
-    return;
-  }
-
-  if (!isAuthenticated(req)) {
-    res.status(401).json({ detail: "Password authentication required", authenticated: false });
-    return;
-  }
-  next();
-});
-
 // API Routes
 
 // Health & System Info
@@ -276,7 +109,6 @@ app.get("/api/health", (req, res) => {
     status: "ok",
     database: "sqlite+in-memory-cache",
     gemini_configured: Boolean(process.env.GEMINI_API_KEY),
-    password_protected: true,
   });
 });
 
@@ -416,7 +248,7 @@ app.post("/api/jobs", (req, res) => {
     return;
   }
   const job = crawlerManager.startJob(niche.trim(), clampInt(limit, 4, 60, 10));
-  res.status(202).json(withSignedDownloads(job, AUTH_SECRET));
+  res.status(202).json(job);
 });
 
 app.post("/api/fetch", (req, res) => {
@@ -426,13 +258,13 @@ app.post("/api/fetch", (req, res) => {
     return;
   }
   const job = crawlerManager.startJob(niche.trim(), clampInt(limit, 4, 60, 10));
-  res.status(202).json(withSignedDownloads(job, AUTH_SECRET));
+  res.status(202).json(job);
 });
 
 app.get("/api/jobs", (req, res) => {
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
   const jobs = crawlerManager.listJobs(limit);
-  res.json({ jobs: jobs.map((j) => withSignedDownloads(j, AUTH_SECRET)), count: jobs.length });
+  res.json({ jobs, count: jobs.length });
 });
 
 app.get("/api/jobs/:job_id", (req, res) => {
@@ -441,7 +273,7 @@ app.get("/api/jobs/:job_id", (req, res) => {
     res.status(404).json({ detail: "Job not found" });
     return;
   }
-  res.json(withSignedDownloads(job, AUTH_SECRET));
+  res.json(job);
 });
 
 app.get("/api/jobs/:job_id/results", (req, res) => {
@@ -520,7 +352,7 @@ app.post("/api/jobs/:job_id/cancel", (req, res) => {
     res.status(404).json({ detail: "Job not found" });
     return;
   }
-  res.json(withSignedDownloads(job, AUTH_SECRET));
+  res.json(job);
 });
 
 // AI Semantic Audit Endpoints
@@ -652,12 +484,8 @@ ${(gig.faqs || []).map((f: any) => `**Q: ${f.question}**\nA: ${f.answer}`).join(
 // Download JSON/CSV dumps
 app.get("/download/:filename", (req, res) => {
   const filename = req.params.filename;
-  // Downloads are authorized ONLY via a short-lived signed URL — no session
-  // token in the query string, no unauthenticated access.
-  if (!verifyDownloadSignature(filename, typeof req.query.dl === "string" ? req.query.dl : undefined, AUTH_SECRET)) {
-    res.status(403).json({ detail: "Download link is invalid or has expired" });
-    return;
-  }
+  // Open access (local studio) — still protected by the strict filename
+  // whitelist + directory containment in resolveDownloadPath.
   const safePath = resolveDownloadPath(filename);
   if (safePath) {
     res.download(safePath);

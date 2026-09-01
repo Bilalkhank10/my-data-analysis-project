@@ -723,14 +723,9 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
+  // Login system removed — the lock overlay can never be shown.
   function showLock() {
-    if (overlay) {
-      overlay.classList.remove('hidden');
-      if (pwdInput) {
-        pwdInput.value = '';
-        setTimeout(() => pwdInput.focus(), 60);
-      }
-    }
+    if (overlay) overlay.classList.add('hidden');
   }
 
   function hideLock() {
@@ -738,18 +733,8 @@ function initAuthGuard(onAuthSuccess) {
   }
 
   if (logoutBtn) {
-    logoutBtn.onclick = async () => {
-      try {
-        const token = localStorage.getItem('gigcraft_auth_token');
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-        });
-      } catch {}
-      try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-      showLock();
-      showToast('System locked', 'info');
-    };
+    // Login system removed — nothing to log out of.
+    logoutBtn.onclick = () => showToast('No login required in this build', 'info');
   }
 
   if (form) {
@@ -803,22 +788,10 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
-  const existingToken = localStorage.getItem('gigcraft_auth_token');
-  if (!existingToken) {
-    showLock();
-  } else {
-    hideLock();
-    if (typeof onAuthSuccess === 'function') {
-      onAuthSuccess();
-    }
-    fetch('/api/auth/status', {
-      headers: { 'Authorization': 'Bearer ' + existingToken }
-    }).then(r => r.json()).then(data => {
-      if (!data || !data.authenticated) {
-        try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-        showLock();
-      }
-    }).catch(() => {});
+  // Login system removed — the studio is open (local tool).
+  hideLock();
+  if (typeof onAuthSuccess === 'function') {
+    onAuthSuccess();
   }
 }
 
@@ -2095,14 +2068,9 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
+  // Login system removed — the lock overlay can never be shown.
   function showLock() {
-    if (overlay) {
-      overlay.classList.remove('hidden');
-      if (pwdInput) {
-        pwdInput.value = '';
-        setTimeout(() => pwdInput.focus(), 60);
-      }
-    }
+    if (overlay) overlay.classList.add('hidden');
   }
 
   function hideLock() {
@@ -2110,18 +2078,8 @@ function initAuthGuard(onAuthSuccess) {
   }
 
   if (logoutBtn) {
-    logoutBtn.onclick = async () => {
-      try {
-        const token = localStorage.getItem('gigcraft_auth_token');
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-        });
-      } catch {}
-      try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-      showLock();
-      showToast('System locked', 'info');
-    };
+    // Login system removed — nothing to log out of.
+    logoutBtn.onclick = () => showToast('No login required in this build', 'info');
   }
 
   if (form) {
@@ -2175,22 +2133,10 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
-  const existingToken = localStorage.getItem('gigcraft_auth_token');
-  if (!existingToken) {
-    showLock();
-  } else {
-    hideLock();
-    if (typeof onAuthSuccess === 'function') {
-      onAuthSuccess();
-    }
-    fetch('/api/auth/status', {
-      headers: { 'Authorization': 'Bearer ' + existingToken }
-    }).then(r => r.json()).then(data => {
-      if (!data || !data.authenticated) {
-        try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-        showLock();
-      }
-    }).catch(() => {});
+  // Login system removed — the studio is open (local tool).
+  hideLock();
+  if (typeof onAuthSuccess === 'function') {
+    onAuthSuccess();
   }
 }
 

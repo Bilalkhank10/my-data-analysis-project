@@ -67,12 +67,6 @@ export class RateLimiter {
   };
 }
 
-/** Login is the brute-force target: strict limit. */
-export const loginLimiter = new RateLimiter({
-  windowMs: 15 * 60 * 1000,
-  max: Number(process.env.LOGIN_RATE_LIMIT_MAX) || 8,
-});
-
 /** General API limiter per IP. */
 export const apiLimiter = new RateLimiter({
   windowMs: 60 * 1000,

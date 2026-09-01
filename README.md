@@ -21,11 +21,14 @@ TypeScript · Express 5 · `@google/genai` (Gemini) · `node:sqlite` (persistenc
 
 ```bash
 npm install
-cp .env.example .env        # then set APP_PASSWORD (and optionally GEMINI_API_KEY, JINA_API_KEY)
+cp .env.example .env        # then optionally set GEMINI_API_KEY / JINA_API_KEY (a key is already in .env)
 npm run dev                 # http://localhost:3000
 ```
 
-If `APP_PASSWORD` is not set, the server prints a **random temporary password** to the console on boot — there is never a hardcoded default.
+> **Access model:** the login system has been **removed** — the studio is open
+> because it is a local tool. The API is still rate-limited, every response
+> carries security headers, and downloads are filename-whitelisted. Keep the
+> server on localhost/LAN (it serves exported gig data).
 
 Production:
 
@@ -63,10 +66,10 @@ Jobs, results, analyses, AI runs, drafts, rank snapshots and the reader cache pe
 
 ### Security model
 
-- Password login (`APP_PASSWORD`) → HMAC-SHA256 session token (30 days), cookie-primary; constant-time comparisons; no hardcoded secrets.
-- **Rate limiting:** strict limit on `/api/auth/login`, general limit on `/api`.
+- **Open local tool** — the password/login system was removed on request; the app is meant to run bound to localhost (no public exposure; it serves exported gig data).
+- **Rate limiting:** general per-IP limit on `/api` (hammering guard).
 - **Security headers** on every response (CSP, `X-Frame-Options: DENY`, nosniff, referrer policy).
-- **Downloads** are authorized via short-lived (1h) **signed URLs** — no session tokens in query strings, no path traversal (strict filename whitelist + directory containment).
+- **Downloads** are filename-whitelisted with strict directory containment (no path traversal, no query-string secrets).
 - CSV exports are sanitized against spreadsheet formula injection.
 
 ### Development
@@ -92,7 +95,7 @@ python start.py                                    # auto port + browser, http:/
 python -m pytest tests/ -q                         # 50+ tests
 ```
 
-The web app is **password-protected** (same `APP_PASSWORD` mechanism as the TS app) and its exports download via short-lived signed URLs.
+The web app is an **open local tool** (login system removed on request) with filename-whitelisted downloads — keep it on localhost.
 
 ## 3. `fiverr-mcp/` (MCP server)
 

@@ -7,15 +7,13 @@ import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 
-import auth
 from ai_manager import AIJobManager
 from generation_manager import GenerationManager
 from job_manager import JobManager
@@ -55,135 +53,6 @@ app = FastAPI(
     description="Premium local studio for Fiverr market research and human-approved gig drafts.",
     lifespan=lifespan,
 )
-
-# ---------------------------------------------------------------------------
-# Authentication (mirrors the TypeScript server: password + HMAC session
-# token, cookie primary, bearer/header fallback, no query-string tokens).
-# ---------------------------------------------------------------------------
-
-LOGIN_HTML = """<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GigCraft — Login</title>
-<style>
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0e1116;color:#e8ecf3;display:flex;align-items:center;justify-content:center;min-height:100vh}
-.card{background:#161b24;border:1px solid #2a3140;border-radius:14px;padding:36px 34px;width:340px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
-h1{font-size:20px;margin:0 0 6px}p.sub{color:#9aa4b5;font-size:13px;margin:0 0 22px}
-input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:9px;border:1px solid #39415255;background:#0e131b;color:#e8ecf3;font-size:14px}
-button{width:100%;box-sizing:border-box;margin-top:14px;padding:11px;border:none;border-radius:9px;background:#e8b93f;color:#20180a;font-weight:700;font-size:14px;cursor:pointer}
-button:disabled{opacity:.6;cursor:default}
-.err{color:#ff7b72;font-size:13px;min-height:18px;margin-top:10px}
-</style></head><body>
-<form class="card" onsubmit="return doLogin(event)">
-<h1>GigCraft</h1><p class="sub">Enter the studio password to continue.</p>
-<input id="pwd" type="password" placeholder="Password" autocomplete="current-password">
-<button id="btn" type="submit">Unlock studio</button>
-<div id="err" class="err"></div>
-</form>
-<script>
-async function doLogin(e){
-  e.preventDefault();
-  var btn=document.getElementById('btn'),err=document.getElementById('err');
-  btn.disabled=true;err.textContent='';
-  try{
-    var r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pwd').value})});
-    if(!r.ok){err.textContent='Incorrect password. Please try again.';btn.disabled=false;return false;}
-    var redirect=new URLSearchParams(location.search).get('redirect')||'/';
-    if(!redirect.startsWith('/'))redirect='/';
-    location.replace(redirect);
-  }catch(_){err.textContent='Network error. Please retry.';btn.disabled=false;}
-  return false;
-}
-</script>
-</body></html>
-"""
-
-# Tiny script injected before </body> of the app pages: bounce to /login when
-# there is no valid session. Kept as an additive string so the main UI is
-# untouched.
-AUTH_BOOT = (
-    "<script>(async()=>{try{const r=await fetch('/api/auth/status',"
-    "{credentials:'same-origin'});const j=await r.json();"
-    "if(!j.authenticated){location.replace('/login?redirect='+"
-    "encodeURIComponent(location.pathname+location.search));}}catch(e){}})();</script>"
-)
-
-PUBLIC_API_PATHS = {"/api/health", "/api/auth/login", "/api/auth/status", "/api/auth/logout"}
-
-
-def _is_authenticated(request: Request) -> bool:
-    cookie_token = request.cookies.get(auth.AUTH_COOKIE)
-    token = auth.extract_token(
-        cookie_token,
-        request.headers.get("authorization"),
-        request.headers.get("x-auth-token"),
-    )
-    return auth.verify_token(token)
-
-
-def _inject_auth_boot(html: str) -> str:
-    if "</body>" in html:
-        return html.replace("</body>", AUTH_BOOT + "</body>", 1)
-    return html + AUTH_BOOT
-
-
-class LoginRequest(BaseModel):
-    password: str = Field(min_length=1, max_length=256)
-
-
-@app.get("/login", response_class=HTMLResponse)
-async def login_page() -> str:
-    return LOGIN_HTML
-
-
-@app.post("/api/auth/login")
-async def api_login(request: Request, body: LoginRequest):
-    from fastapi.responses import JSONResponse as _JSON
-
-    if auth.password_matches(auth.get_app_password(), body.password):
-        token = auth.generate_token()
-        response = _JSON(
-            {"success": True, "token": token, "detail": "Authenticated successfully"}
-        )
-        response.set_cookie(
-            auth.AUTH_COOKIE,
-            token,
-            max_age=auth.TOKEN_TTL_SECONDS,
-            httponly=True,
-            samesite="lax",
-            secure=request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https",
-            path="/",
-        )
-        return response
-    return _JSON(status_code=401, content={"success": False, "detail": "Incorrect password. Please try again."})
-
-
-@app.get("/api/auth/status")
-async def api_auth_status(request: Request):
-    return {"authenticated": _is_authenticated(request), "configured": True}
-
-
-@app.post("/api/auth/logout")
-async def api_logout(request: Request):
-    response = JSONResponse({"success": True})
-    response.delete_cookie(auth.AUTH_COOKIE, path="/")
-    return response
-
-
-@app.middleware("http")
-async def auth_guard(request: Request, call_next):
-    path = request.url.path
-    if path.startswith("/api/"):
-        if path not in PUBLIC_API_PATHS and not _is_authenticated(request):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Password authentication required", "authenticated": False},
-            )
-    elif path in {"/", "/advanced"}:
-        if not _is_authenticated(request):
-            redirect = "/login?redirect=" + quote(path)
-            return RedirectResponse(url=redirect, status_code=302)
-    return await call_next(request)
-
 
 class FetchRequest(BaseModel):
     niche: str = Field(min_length=2, max_length=100)
@@ -232,17 +101,13 @@ class SimpleWorkflowRequest(BaseModel):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request) -> str:
-    if not _is_authenticated(request):
-        return RedirectResponse(url="/login?redirect=%2F", status_code=302)
-    return _inject_auth_boot(SIMPLE_HTML)
+async def home() -> str:
+    return SIMPLE_HTML
 
 
 @app.get("/advanced", response_class=HTMLResponse)
-async def advanced_dashboard(request: Request) -> str:
-    if not _is_authenticated(request):
-        return RedirectResponse(url="/login?redirect=%2Fadvanced", status_code=302)
-    return _inject_auth_boot(INDEX_HTML)
+async def advanced_dashboard() -> str:
+    return INDEX_HTML
 
 
 @app.get("/api/health")
@@ -580,13 +445,10 @@ async def cancel_job(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/download/{filename}")
-async def download(filename: str, dl: str | None = Query(default=None)) -> FileResponse:
-    # Downloads are authorized ONLY via short-lived signed URLs (see
-    # auth.sign_download_url) — no session token in the query string.
+async def download(filename: str) -> FileResponse:
+    # Open access (local studio) — filename is strictly whitelisted.
     if not re.fullmatch(r"[A-Za-z0-9_-]+\.(json|csv)", filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
-    if not auth.verify_download_signature(filename, dl):
-        raise HTTPException(status_code=403, detail="Download link is invalid or has expired")
     path = OUTPUT_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Export not found")
