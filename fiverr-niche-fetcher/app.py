@@ -54,7 +54,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
 class FetchRequest(BaseModel):
     niche: str = Field(min_length=2, max_length=100)
     limit: int = Field(default=5, ge=1, le=500)
@@ -447,6 +446,7 @@ async def cancel_job(job_id: str) -> dict[str, Any]:
 
 @app.get("/download/{filename}")
 async def download(filename: str) -> FileResponse:
+    # Open access (local studio) — filename is strictly whitelisted.
     if not re.fullmatch(r"[A-Za-z0-9_-]+\.(json|csv)", filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
     path = OUTPUT_DIR / filename

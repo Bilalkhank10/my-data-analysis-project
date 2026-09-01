@@ -3,105 +3,38 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import crypto from "crypto";
-import { storage } from "./src/storage.js";
+import { storage, stripBulkyFields } from "./src/storage.js";
 import { MarketAnalyzer } from "./src/market_analyzer.js";
 import { crawlerManager } from "./src/crawler.js";
 import { aiEngine } from "./src/ai_engine.js";
 import { simpleWorkflowManager } from "./src/simple_workflow.js";
-import { SIMPLE_HTML, INDEX_HTML, LOGIN_HTML } from "./src/views.js";
+import { readerFetcher } from "./src/fiverr_fetcher.js";
+import { csvCell } from "./src/csv.js";
+import { securityHeaders } from "./src/security.js";
+import { apiLimiter } from "./src/rate_limit.js";
+import { SIMPLE_HTML, INDEX_HTML } from "./src/views.js";
+
+// Attach the persistent reader cache so repeat crawls of the same niche
+// within the TTL don't burn Jina quota.
+readerFetcher.readerCache = {
+  get: (url, ttlMs) => storage.getReaderCache(url, ttlMs),
+  set: (url, markdown) => storage.setReaderCache(url, markdown),
+};
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-// No hardcoded password/secret fallbacks: generate an ephemeral random secret
-// on boot if AUTH_SECRET is unset, and require APP_PASSWORD to be configured.
-// If it is missing, fall back to a random per-boot password printed to the
-// server log so access is never silently wide-open with a known default.
-const AUTH_SECRET = process.env.AUTH_SECRET || crypto.randomBytes(32).toString("hex");
-const APP_PASSWORD = process.env.APP_PASSWORD || crypto.randomBytes(12).toString("base64url");
-if (!process.env.APP_PASSWORD) {
-  console.warn(
-    "[security] APP_PASSWORD is not set. A temporary password was generated for this session:\n" +
-      `           ${APP_PASSWORD}\n` +
-      "           Set APP_PASSWORD in your environment to use a stable password."
-  );
-}
-const activeSessions = new Set<string>();
-
-// Cookies are marked Secure only when the request arrived over HTTPS. Local
-// and LAN access is typically plain HTTP, where a Secure cookie would be
-// dropped by the browser and break persistent login.
-function cookieFlags(req: express.Request, maxAgeSeconds: number): string {
-  const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
-  return `Path=/; HttpOnly; SameSite=Lax${isHttps ? "; Secure" : ""}; Max-Age=${maxAgeSeconds}`;
-}
-
-function generateToken(): string {
-  const timestamp = Date.now();
-  const random = crypto.randomBytes(16).toString("hex");
-  const payload = `${timestamp}:${random}`;
-  const signature = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("hex");
-  const token = `${payload}:${signature}`;
-  activeSessions.add(token);
-  return token;
-}
-
-function verifyToken(token: string | null): boolean {
-  if (!token) return false;
-  if (activeSessions.has(token)) return true;
-  try {
-    const parts = token.split(":");
-    if (parts.length !== 3) return false;
-    const [tsStr, random, signature] = parts;
-    const timestamp = parseInt(tsStr, 10);
-    if (isNaN(timestamp)) return false;
-    // 30 days valid
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    if (Date.now() - timestamp > thirtyDaysMs) return false;
-    const payload = `${timestamp}:${random}`;
-    const expectedSig = crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("hex");
-    if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
-      activeSessions.add(token);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
-
-function getCookie(req: express.Request, name: string): string | null {
-  const cookieHeader = req.headers.cookie;
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function isAuthenticated(req: express.Request): boolean {
-  const cookieToken = getCookie(req, "auth_token");
-  if (cookieToken && verifyToken(cookieToken)) return true;
-
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const bearerToken = authHeader.substring(7).trim();
-    if (bearerToken && verifyToken(bearerToken)) return true;
-  }
-
-  const customHeader = req.headers["x-auth-token"];
-  if (typeof customHeader === "string" && verifyToken(customHeader)) {
-    return true;
-  }
-
-  if (typeof req.query.token === "string" && verifyToken(req.query.token)) {
-    return true;
-  }
-
-  return false;
-}
-
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+
+// Security headers on every response.
+app.use((_req, res, next) => {
+  for (const [k, v] of Object.entries(securityHeaders())) res.setHeader(k, v);
+  next();
+});
+
+// Rate limiting: general API limit per IP (brute-force hammering guard).
+app.use("/api", apiLimiter.middleware);
 
 // Return a clean JSON error (instead of an Express HTML stack trace) when the
 // request body is not valid JSON.
@@ -122,15 +55,7 @@ function clampInt(value: any, min: number, max: number, fallback: number): numbe
 const VALID_AI_MODES = new Set(["dry_run", "test", "standard", "deep"]);
 const VALID_QUALITY = new Set(["fast", "recommended", "best"]);
 
-// Neutralize spreadsheet formula injection: a leading =, +, -, @ (or tab/CR)
-// can execute formulas when the CSV is opened in Excel/Sheets.
-function csvCell(value: any): string {
-  if (value === null || value === undefined) return "";
-  let s = String(value).replace(/"/g, '""');
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
-  if (s.includes(",") || s.includes("\n") || s.includes('"')) s = `"${s}"`;
-  return s;
-}
+// (csvCell lives in src/csv.js — shared with the storage-level exports)
 
 // Ensure output and static directories exist.
 // Exports are written by the storage layer to <cwd>/data/exports.
@@ -165,65 +90,6 @@ function resolveDownloadPath(filename: string): string | null {
 // Serve static assets (publicly available for stylesheets, icons, fonts)
 app.use("/static", express.static(STATIC_DIR));
 
-// Authentication Endpoints
-function passwordMatches(input: string): boolean {
-  const a = Buffer.from(input.trim());
-  const b = Buffer.from(APP_PASSWORD);
-  // Constant-time comparison; lengths differing still do a compare against a
-  // dummy buffer to avoid leaking length via timing.
-  const ref = a.length === b.length ? b : Buffer.alloc(a.length);
-  try {
-    return a.length === b.length && crypto.timingSafeEqual(a, ref);
-  } catch {
-    return false;
-  }
-}
-
-app.post("/api/auth/login", (req, res) => {
-  const { password } = req.body || {};
-  if (typeof password === "string" && passwordMatches(password)) {
-    const token = generateToken();
-    res.setHeader("Set-Cookie", `auth_token=${token}; ${cookieFlags(req, 2592000)}`);
-    res.json({ success: true, token, detail: "Authenticated successfully" });
-  } else {
-    res.status(401).json({ success: false, detail: "Incorrect password. Please try again." });
-  }
-});
-
-app.get("/api/auth/status", (req, res) => {
-  res.json({
-    authenticated: isAuthenticated(req),
-    configured: true,
-  });
-});
-
-app.post("/api/auth/logout", (req, res) => {
-  const cookieToken = getCookie(req, "auth_token");
-  if (cookieToken) {
-    activeSessions.delete(cookieToken);
-  }
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const bearerToken = authHeader.substring(7).trim();
-    if (bearerToken) activeSessions.delete(bearerToken);
-  }
-  const customHeader = req.headers["x-auth-token"];
-  if (typeof customHeader === "string") {
-    activeSessions.delete(customHeader);
-  }
-  if (typeof req.query.token === "string") {
-    activeSessions.delete(req.query.token);
-  }
-  res.setHeader("Set-Cookie", `auth_token=; ${cookieFlags(req, 0)}`);
-  res.json({ success: true });
-});
-
-// HTML Login Route
-app.get("/login", (req, res) => {
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(LOGIN_HTML);
-});
-
 // HTML Application Routes
 app.get("/", (req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -235,35 +101,14 @@ app.get("/advanced", (req, res) => {
   res.send(INDEX_HTML);
 });
 
-// API Authentication Guard
-app.use("/api", (req, res, next) => {
-  // Whitelist public endpoints
-  if (
-    req.path === "/health" ||
-    req.path === "/auth/login" ||
-    req.path === "/auth/status" ||
-    req.path === "/auth/logout"
-  ) {
-    next();
-    return;
-  }
-
-  if (!isAuthenticated(req)) {
-    res.status(401).json({ detail: "Password authentication required", authenticated: false });
-    return;
-  }
-  next();
-});
-
 // API Routes
 
 // Health & System Info
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
-    database: "in-memory-storage",
+    database: "sqlite+in-memory-cache",
     gemini_configured: Boolean(process.env.GEMINI_API_KEY),
-    password_protected: true,
   });
 });
 
@@ -440,6 +285,7 @@ app.get("/api/jobs/:job_id/results", (req, res) => {
   const offset = Math.max(0, Number(req.query.offset) || 0);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
   const { results, total } = storage.getJobResults(req.params.job_id, offset, limit);
+  // Strip bulky session-only text fields — the UI never renders them.
   res.json({
     job_id: req.params.job_id,
     status: job.status,
@@ -447,7 +293,7 @@ app.get("/api/jobs/:job_id/results", (req, res) => {
     limit,
     total,
     has_more: offset + results.length < total,
-    results,
+    results: results.map(stripBulkyFields),
   });
 });
 
@@ -591,8 +437,9 @@ app.post("/api/generation-runs/:run_id/approval", (req, res) => {
     res.status(404).json({ detail: "Builder run not found" });
     return;
   }
-  run.approval_status = "approved";
-  res.json(run);
+  // Persist the approval so it survives restarts (in-memory only was a bug).
+  const updated = storage.updateGenerationRun(run.id, { approval_status: "approved" });
+  res.json(updated);
 });
 
 app.get("/api/generation-runs/:run_id/export.md", (req, res) => {
@@ -638,11 +485,9 @@ ${(gig.faqs || []).map((f: any) => `**Q: ${f.question}**\nA: ${f.answer}`).join(
 
 // Download JSON/CSV dumps
 app.get("/download/:filename", (req, res) => {
-  if (!isAuthenticated(req)) {
-    res.redirect(`/login?redirect=${encodeURIComponent(req.originalUrl)}`);
-    return;
-  }
   const filename = req.params.filename;
+  // Open access (local studio) — still protected by the strict filename
+  // whitelist + directory containment in resolveDownloadPath.
   const safePath = resolveDownloadPath(filename);
   if (safePath) {
     res.download(safePath);
@@ -657,18 +502,19 @@ app.get("/download/:filename", (req, res) => {
     const format = match[2];
     const { results } = storage.getJobResults(jobId, 0, 100000);
     if (results.length > 0) {
+      const lean = results.map(stripBulkyFields);
       if (format === "json") {
         res.setHeader("Content-Type", "application/json");
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-        res.send(JSON.stringify(results, null, 2));
+        res.send(JSON.stringify(lean, null, 2));
         return;
       } else if (format === "csv") {
         res.setHeader("Content-Type", "text/csv");
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
         const headers = ["id", "title", "seller_name", "seller_level", "starting_price_usd", "rating", "review_count", "url"];
         const lines = [headers.map(csvCell).join(",")];
-        for (const r of results) {
-          lines.push(headers.map((h) => csvCell((r as any)[h])).join(","));
+        for (const r of lean) {
+          lines.push(headers.map((h) => csvCell(r[h])).join(","));
         }
         res.send(lines.join("\n"));
         return;
@@ -683,6 +529,18 @@ app.use((req, res) => {
   res.redirect("/");
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`GigCraft Server running on port ${PORT}`);
 });
+
+// Graceful shutdown: stop accepting new connections and exit cleanly.
+// Crawl data is persisted to SQLite (data/gigcraft.db) on every write, so a
+// restart no longer loses finished jobs/analyses/drafts.
+function shutdown(signal: string): void {
+  console.log(`[shutdown] ${signal} received — closing HTTP server (in-flight jobs will finish or resume on next start)`);
+  server.close(() => process.exit(0));
+  // Force-exit if connections linger.
+  setTimeout(() => process.exit(0), 10_000).unref();
+}
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

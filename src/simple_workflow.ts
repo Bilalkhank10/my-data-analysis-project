@@ -33,6 +33,17 @@ export class SimpleWorkflowRunner {
 
       await this.crawler.runJob(jobId);
 
+      // Propagate the crawl job's data-source warnings (e.g. the labelled
+      // sample fallback) into the workflow record so the UI can display a
+      // prominent banner instead of showing sample data silently.
+      const crawlJob = this.storage.getJob(jobId);
+      if (crawlJob?.warnings?.length) {
+        const currentFlow = this.storage.getSimpleWorkflow(workflowId);
+        this.storage.updateSimpleWorkflow(workflowId, {
+          warnings: Array.from(new Set([...(currentFlow?.warnings || []), ...crawlJob.warnings])),
+        });
+      }
+
       this.storage.updateSimpleWorkflow(workflowId, {
         stage: "understand",
         message: "Auditing keyword clusters, buyer intent, and competitor weaknesses...",
@@ -60,10 +71,13 @@ export class SimpleWorkflowRunner {
         markdown_url: `/api/generation-runs/${genRunId}/export.md`,
       });
 
+      // language is the OUTPUT language of the gig copy (previously it was
+      // mis-fed into "experience level" in the prompt).
       await this.aiEngine.runGigGeneration(genRunId, {
         custom_angle: flow.inputs?.buyer,
         target_price: "market_aligned",
-        experience_level: flow.inputs?.language,
+        experience_level: "experienced professional",
+        language: flow.inputs?.language,
       });
 
       this.storage.updateSimpleWorkflow(workflowId, {

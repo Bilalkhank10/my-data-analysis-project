@@ -790,18 +790,35 @@ export class FiverrReaderFetcher {
     }
   }
 
+  /** Optional reader cache (attached by the server; avoids re-hitting Jina). */
+  readerCache: { get(url: string, ttlMs: number): string | null; set(url: string, markdown: string): void } | null =
+    null;
+  readerCacheTtlMs = Math.max(60, Number(process.env.CRAWL_CACHE_TTL_SECONDS) || 6 * 60 * 60) * 1000;
+
+  private readerHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      Accept: "text/markdown",
+      "User-Agent": "Mozilla/5.0 (compatible; GigCraft/1.0)",
+      "X-Return-Format": "markdown",
+    };
+    // A (free) Jina API key raises the rate limit from ~20 RPM to ~500 RPM.
+    const jinaKey = process.env.JINA_API_KEY;
+    if (jinaKey && jinaKey.trim()) headers["Authorization"] = `Bearer ${jinaKey.trim()}`;
+    return headers;
+  }
+
   private async getText(url: string): Promise<string> {
+    // Cache hit: serve the previously fetched markdown within the TTL.
+    if (this.readerCache) {
+      const cached = this.readerCache.get(url, this.readerCacheTtlMs);
+      if (cached) return cached;
+    }
     let lastError: any = null;
     const attempts = this.settings.retryCount + 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
         const res = await fetch(url, {
-          headers: {
-            Accept: "text/markdown",
-            "User-Agent": "Mozilla/5.0 (compatible; GigCraft/1.0)",
-            "X-Return-Format": "markdown",
-            Connection: "close",
-          } as any,
+          headers: this.readerHeaders() as any,
           signal: AbortSignal.timeout(this.settings.readerTimeoutSeconds * 1000),
           redirect: "follow",
         });
@@ -811,6 +828,13 @@ export class FiverrReaderFetcher {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const text = await res.text();
         if (text.trim().length < 200) throw new Error("Reader returned an empty or unusable response.");
+        if (this.readerCache) {
+          try {
+            this.readerCache.set(url, text);
+          } catch {
+            // cache failures never break the crawl
+          }
+        }
         return text;
       } catch (err: any) {
         lastError = err;
@@ -965,7 +989,7 @@ export class FiverrReaderFetcher {
         let gig = await this.fetchGig(rec.url);
 
         // Merge search-card metadata as fallback for missing detail fields.
-        gig.title = gig.title || rec.card_title;
+        gig.title = gig.title || rec.card_title || "";
         gig.seller_name = gig.seller_name || rec.card_seller_name;
         gig.seller_username = gig.seller_username || rec.card_seller_username;
         gig.seller_level = gig.seller_level || rec.card_seller_level;

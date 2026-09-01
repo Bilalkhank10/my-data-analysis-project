@@ -25,11 +25,22 @@ public market data as AI tools.  Works with **LobeHub**, **Claude Desktop**,
 fiverr-mcp/
 ├── mcp_server.py            # The MCP server (run this)
 ├── fiverr_fetcher.py        # Core crawl engine (do not rename/move)
+├── app.py                   # Compatibility shim — the web app lives in fiverr-niche-fetcher/
 ├── requirements.txt         # Python dependencies
 ├── lobehub_config.json      # Ready-to-paste config for LobeHub
 ├── claude_desktop_config.json  # Config for Claude Desktop
 └── README.md                # This file
 ```
+
+> **Note:** `fiverr-mcp/app.py` is a thin shim that re-exports the FastAPI
+> web app from the sibling `fiverr-niche-fetcher` package (both folders must
+> be side by side, as in this repository). The MCP server itself is
+> `mcp_server.py` and is fully self-contained.
+>
+> **Sync rule:** `fiverr_fetcher.py` must stay byte-identical to
+> `fiverr-niche-fetcher/fiverr_fetcher.py` — run
+> `python scripts/sync_fiverr_fetcher.py` from the repo root after edits
+> (CI fails when the copies drift).
 
 ---
 

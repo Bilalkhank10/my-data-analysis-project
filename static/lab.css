@@ -863,3 +863,9 @@ footer.lab-foot {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Data-provenance banner (sample fallback vs live data) + job warnings */
+.data-banner { padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; margin: 0 0 14px; line-height: 1.45; }
+.data-banner.sample { background: rgba(255, 193, 7, 0.12); border: 1px solid rgba(255, 193, 7, 0.55); color: #ffd47e; }
+.data-banner:not(.sample) { background: rgba(64, 192, 128, 0.08); border: 1px solid rgba(64, 192, 128, 0.35); color: #7ee2ad; }
+.warn-line { color: #ffb4a8; font-size: 12.5px; margin-top: 6px; line-height: 1.4; }

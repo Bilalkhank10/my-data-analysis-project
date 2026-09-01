@@ -18,6 +18,16 @@ function gig(over: any = {}): any {
     last_delivery: "1 day ago",
     search: { niche: "dashboard", global_position: 1, seller_online: true },
     related_tags: ["dashboard"],
+    // Real detail data (the analyzer no longer fabricates package/review
+    // sections when the crawl provides none).
+    packages: [
+      { name: "Basic", price_usd: 50, description: "1 page", delivery_days: 1, revisions: 2, features: { "Data source": true } },
+      { name: "Standard", price_usd: 100, description: "3 pages", delivery_days: 2, revisions: 4, features: { "Data source": true, "Auto refresh": true } },
+      { name: "Premium", price_usd: 200, description: "Full", delivery_days: 4, revisions: "Unlimited", features: { "Data source": true, "Video walkthrough": true } },
+    ],
+    visible_reviews: [
+      { rating: 5, comment: "Great work, fast and professional", buyer_country: "United States" },
+    ],
     ...over,
   };
 }

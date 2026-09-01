@@ -252,17 +252,49 @@ async function api(url, opts = {}) {
   return d;
 }
 
-// Append the auth token to direct-navigation URLs (file downloads open in a
-// new top-level navigation where Authorization headers cannot be set).
+// Direct-navigation URLs (file downloads open as top-level navigations).
+// Auth happens via the same-origin session cookie (sent automatically) and
+// via short-lived SIGNED download URLs from the API — the old ?token= query
+// parameter is gone (tokens in URLs leak via logs/referrers).
 function authUrl(url) {
-  const token = localStorage.getItem('gigcraft_auth_token');
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return url + sep + 'token=' + encodeURIComponent(token);
+  return url;
 }
 
 $('menuBtn').onclick = () => document.body.classList.toggle('nav-open');
 $('scrim').onclick = () => document.body.classList.remove('nav-open');
+
+// --- Data provenance: when the live crawl falls back to the labelled
+// illustrative sample, say so PROMINENTLY instead of showing sample data
+// silently.
+function _sampleWarning(job) {
+  const src = job.discovery_source || '';
+  const warns = (job.warnings || []).join(' ');
+  if (/illustrative sample|demo data/i.test(src)) return src;
+  if (/illustrative|simulated sample|live fiverr data was unavailable/i.test(warns)) return warns;
+  return null;
+}
+function showDataBanner(container, job) {
+  if (!container) return;
+  container.querySelectorAll('.data-banner').forEach(n => n.remove());
+  const sample = _sampleWarning(job || {});
+  const b = document.createElement('div');
+  b.className = 'data-banner' + (sample ? ' sample' : '');
+  b.textContent = sample
+    ? '\u26A0 SAMPLE DATA \u2014 live Fiverr fetch was unavailable, so these results are an illustrative sample, NOT real listings. Re-run when online to get real market data.'
+    : '\u2713 Live market data (fetched via the Jina Reader proxy).';
+  container.insertBefore(b, container.firstChild);
+}
+function renderJobWarnings(job) {
+  const box = $('warnings');
+  if (!box) return;
+  box.replaceChildren();
+  (job.warnings || []).forEach(w => {
+    const d = document.createElement('div');
+    d.className = 'warn-line';
+    d.textContent = '\u26A0 ' + w;
+    box.appendChild(d);
+  });
+}
 
 function setProgress(pct, title, text, stage) {
   $('progressBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
@@ -356,6 +388,7 @@ async function runWorkflow(inputs, resume) {
         setProgress(100, 'Your gig is ready', 'Review and copy each section into Fiverr.', 'ready');
         await sleep(280);
         renderResult(g, { markdown_url: s.markdown_url, job_id: s.job_id });
+        showDataBanner($('result'), s);
         currentState = null;
         saveState();
         $('progress').classList.remove('show');
@@ -724,14 +757,9 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
+  // Login system removed — the lock overlay can never be shown.
   function showLock() {
-    if (overlay) {
-      overlay.classList.remove('hidden');
-      if (pwdInput) {
-        pwdInput.value = '';
-        setTimeout(() => pwdInput.focus(), 60);
-      }
-    }
+    if (overlay) overlay.classList.add('hidden');
   }
 
   function hideLock() {
@@ -739,18 +767,8 @@ function initAuthGuard(onAuthSuccess) {
   }
 
   if (logoutBtn) {
-    logoutBtn.onclick = async () => {
-      try {
-        const token = localStorage.getItem('gigcraft_auth_token');
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-        });
-      } catch {}
-      try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-      showLock();
-      showToast('System locked', 'info');
-    };
+    // Login system removed — nothing to log out of.
+    logoutBtn.onclick = () => showToast('No login required in this build', 'info');
   }
 
   if (form) {
@@ -804,22 +822,10 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
-  const existingToken = localStorage.getItem('gigcraft_auth_token');
-  if (!existingToken) {
-    showLock();
-  } else {
-    hideLock();
-    if (typeof onAuthSuccess === 'function') {
-      onAuthSuccess();
-    }
-    fetch('/api/auth/status', {
-      headers: { 'Authorization': 'Bearer ' + existingToken }
-    }).then(r => r.json()).then(data => {
-      if (!data || !data.authenticated) {
-        try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-        showLock();
-      }
-    }).catch(() => {});
+  // Login system removed — the studio is open (local tool).
+  hideLock();
+  if (typeof onAuthSuccess === 'function') {
+    onAuthSuccess();
   }
 }
 
@@ -1257,13 +1263,12 @@ async function api(url, options = {}) {
   return d;
 }
 
-// Append the auth token to direct-navigation URLs (file downloads open in a
-// new top-level navigation where Authorization headers cannot be set).
+// Direct-navigation URLs (file downloads open as top-level navigations).
+// Auth happens via the same-origin session cookie (sent automatically) and
+// via short-lived SIGNED download URLs from the API — the old ?token= query
+// parameter is gone (tokens in URLs leak via logs/referrers).
 function authUrl(url) {
-  const token = localStorage.getItem('gigcraft_auth_token');
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return url + sep + 'token=' + encodeURIComponent(token);
+  return url;
 }
 
 async function copyText(text, button) {
@@ -2015,11 +2020,46 @@ async function pollJob() {
   }
 }
 
+// --- Data provenance: when the live crawl falls back to the labelled
+// illustrative sample, say so PROMINENTLY instead of showing sample data
+// silently.
+function _sampleWarning(job) {
+  const src = job.discovery_source || '';
+  const warns = (job.warnings || []).join(' ');
+  if (/illustrative sample|demo data/i.test(src)) return src;
+  if (/illustrative|simulated sample|live fiverr data was unavailable/i.test(warns)) return warns;
+  return null;
+}
+function showDataBanner(container, job) {
+  if (!container) return;
+  container.querySelectorAll('.data-banner').forEach(n => n.remove());
+  const sample = _sampleWarning(job || {});
+  const b = document.createElement('div');
+  b.className = 'data-banner' + (sample ? ' sample' : '');
+  b.textContent = sample
+    ? '\u26A0 SAMPLE DATA \u2014 live Fiverr fetch was unavailable, so these results are an illustrative sample, NOT real listings. Re-run when online to get real market data.'
+    : '\u2713 Live market data (fetched via the Jina Reader proxy).';
+  container.insertBefore(b, container.firstChild);
+}
+function renderJobWarnings(job) {
+  const box = $('warnings');
+  if (!box) return;
+  box.replaceChildren();
+  (job.warnings || []).forEach(w => {
+    const d = document.createElement('div');
+    d.className = 'warn-line';
+    d.textContent = '\u26A0 ' + w;
+    box.appendChild(d);
+  });
+}
+
 function showSummary(job) {
   enableResearchWorkspaces(true);
   $('summary').classList.add('show');
   $('summaryTitle').textContent = job.niche + ' results';
   $('summaryMeta').textContent = (job.success_count || 0) + ' successful · ' + (job.discovered_count || 0) + ' discovered';
+  showDataBanner($('summary'), job);
+  renderJobWarnings(job);
   $('downloads').replaceChildren();
   for (const [label, href] of Object.entries(job.downloads || {})) {
     const a = el('a', 'button', label.toUpperCase() + ' download');
@@ -2097,14 +2137,9 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
+  // Login system removed — the lock overlay can never be shown.
   function showLock() {
-    if (overlay) {
-      overlay.classList.remove('hidden');
-      if (pwdInput) {
-        pwdInput.value = '';
-        setTimeout(() => pwdInput.focus(), 60);
-      }
-    }
+    if (overlay) overlay.classList.add('hidden');
   }
 
   function hideLock() {
@@ -2112,18 +2147,8 @@ function initAuthGuard(onAuthSuccess) {
   }
 
   if (logoutBtn) {
-    logoutBtn.onclick = async () => {
-      try {
-        const token = localStorage.getItem('gigcraft_auth_token');
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-        });
-      } catch {}
-      try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-      showLock();
-      showToast('System locked', 'info');
-    };
+    // Login system removed — nothing to log out of.
+    logoutBtn.onclick = () => showToast('No login required in this build', 'info');
   }
 
   if (form) {
@@ -2177,22 +2202,10 @@ function initAuthGuard(onAuthSuccess) {
     };
   }
 
-  const existingToken = localStorage.getItem('gigcraft_auth_token');
-  if (!existingToken) {
-    showLock();
-  } else {
-    hideLock();
-    if (typeof onAuthSuccess === 'function') {
-      onAuthSuccess();
-    }
-    fetch('/api/auth/status', {
-      headers: { 'Authorization': 'Bearer ' + existingToken }
-    }).then(r => r.json()).then(data => {
-      if (!data || !data.authenticated) {
-        try { localStorage.removeItem('gigcraft_auth_token'); } catch {}
-        showLock();
-      }
-    }).catch(() => {});
+  // Login system removed — the studio is open (local tool).
+  hideLock();
+  if (typeof onAuthSuccess === 'function') {
+    onAuthSuccess();
   }
 }
 

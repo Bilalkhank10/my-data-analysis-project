@@ -91,8 +91,13 @@ export class FiverrCrawler {
         this.storage.saveGigResult(jobId, gig);
       }
 
+      // Persist a rank snapshot for this niche (enables real rank-movement
+      // comparisons against previous crawls).
+      this.storage.saveRankSnapshot(niche, jobId, gigs);
+
       const totalAvailable = isLive ? availableResults || gigs.length : gigs.length;
-      const analysis = MarketAnalyzer.analyze(niche, gigs, totalAvailable);
+      const previous = this.storage.getPreviousSnapshot(niche, jobId);
+      const analysis = MarketAnalyzer.analyze(niche, gigs, totalAvailable, previous);
       this.storage.saveAnalysis(jobId, analysis);
       this.storage.writeJobExports(jobId, niche, gigs);
 
@@ -248,7 +253,8 @@ export const crawlerManager = {
     if (!job) return undefined;
     const gigs = storage.getAllJobResults(id);
     if (gigs.length === 0) return undefined;
-    const analysis = MarketAnalyzer.analyze(job.niche, gigs, job.available_results);
+    const previous = storage.getPreviousSnapshot(job.niche, id);
+    const analysis = MarketAnalyzer.analyze(job.niche, gigs, job.available_results, previous);
     storage.saveAnalysis(id, analysis);
     return analysis;
   },
