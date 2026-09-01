@@ -6,7 +6,7 @@ import path from "node:path";
 import { csvCell, toCsv } from "../src/csv.js";
 import { securityHeaders } from "../src/security.js";
 import { RateLimiter } from "../src/rate_limit.js";
-import { Storage } from "../src/storage.js";
+import { Storage, stripBulkyFields } from "../src/storage.js";
 
 // ---------------------------------------------------------------------------
 // CSV formula injection
@@ -165,4 +165,34 @@ test("job cap evicts oldest finished jobs", () => {
   } finally {
     delete process.env.MAX_JOBS;
   }
+});
+
+// ---------------------------------------------------------------------------
+// Bulky-field stripping (results API + dynamic downloads)
+// ---------------------------------------------------------------------------
+
+test("stripBulkyFields removes page-text blobs but keeps UI fields", () => {
+  const gig: any = {
+    url: "https://www.fiverr.com/a/b",
+    title: "t",
+    starting_price_usd: 50,
+    visible_reviews: [{ rating: 5, comment: "great" }],
+    packages: [{ name: "Basic", price_usd: 50 }],
+    raw_visible_text: "X".repeat(100_000),
+    reviews_text: "Y".repeat(100_000),
+    faq_text: "Z".repeat(100_000),
+    packages_text: "W".repeat(100_000),
+    json_ld: { huge: true },
+  };
+  const lean = stripBulkyFields(gig);
+  assert.ok(!("raw_visible_text" in lean));
+  assert.ok(!("reviews_text" in lean));
+  assert.ok(!("faq_text" in lean));
+  assert.ok(!("packages_text" in lean));
+  assert.ok(!("json_ld" in lean));
+  assert.equal(lean.title, "t");
+  assert.deepEqual(lean.visible_reviews, gig.visible_reviews);
+  assert.deepEqual(lean.packages, gig.packages);
+  // original object untouched
+  assert.ok("raw_visible_text" in gig);
 });

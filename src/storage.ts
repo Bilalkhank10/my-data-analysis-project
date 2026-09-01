@@ -17,11 +17,20 @@ export function utcNow(): string {
 /** Fields stripped from on-disk JSON exports (large, session-only payloads). */
 const EXPORT_STRIP_FIELDS = ["raw_visible_text", "reviews_text", "faq_text", "packages_text", "json_ld"];
 
-function stripForExport(gig: GigResult): Record<string, any> {
+/**
+ * Remove bulky session-only fields (full page text etc.) from a gig record.
+ * Shared by exports, the results API and dynamic downloads so none of them
+ * ship multi-MB text blobs to clients.
+ */
+export function stripBulkyFields(gig: GigResult): Record<string, any> {
   if (typeof gig !== "object" || gig === null) return gig as any;
   const out: Record<string, any> = { ...(gig as any) };
   for (const f of EXPORT_STRIP_FIELDS) delete out[f];
   return out;
+}
+
+function stripForExport(gig: GigResult): Record<string, any> {
+  return stripBulkyFields(gig);
 }
 
 /**

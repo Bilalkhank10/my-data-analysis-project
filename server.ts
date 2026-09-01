@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import { storage } from "./src/storage.js";
+import { storage, stripBulkyFields } from "./src/storage.js";
 import { MarketAnalyzer } from "./src/market_analyzer.js";
 import { crawlerManager } from "./src/crawler.js";
 import { aiEngine } from "./src/ai_engine.js";
@@ -285,6 +285,7 @@ app.get("/api/jobs/:job_id/results", (req, res) => {
   const offset = Math.max(0, Number(req.query.offset) || 0);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
   const { results, total } = storage.getJobResults(req.params.job_id, offset, limit);
+  // Strip bulky session-only text fields — the UI never renders them.
   res.json({
     job_id: req.params.job_id,
     status: job.status,
@@ -292,7 +293,7 @@ app.get("/api/jobs/:job_id/results", (req, res) => {
     limit,
     total,
     has_more: offset + results.length < total,
-    results,
+    results: results.map(stripBulkyFields),
   });
 });
 
@@ -436,8 +437,9 @@ app.post("/api/generation-runs/:run_id/approval", (req, res) => {
     res.status(404).json({ detail: "Builder run not found" });
     return;
   }
-  run.approval_status = "approved";
-  res.json(run);
+  // Persist the approval so it survives restarts (in-memory only was a bug).
+  const updated = storage.updateGenerationRun(run.id, { approval_status: "approved" });
+  res.json(updated);
 });
 
 app.get("/api/generation-runs/:run_id/export.md", (req, res) => {
@@ -500,18 +502,19 @@ app.get("/download/:filename", (req, res) => {
     const format = match[2];
     const { results } = storage.getJobResults(jobId, 0, 100000);
     if (results.length > 0) {
+      const lean = results.map(stripBulkyFields);
       if (format === "json") {
         res.setHeader("Content-Type", "application/json");
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-        res.send(JSON.stringify(results, null, 2));
+        res.send(JSON.stringify(lean, null, 2));
         return;
       } else if (format === "csv") {
         res.setHeader("Content-Type", "text/csv");
         res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
         const headers = ["id", "title", "seller_name", "seller_level", "starting_price_usd", "rating", "review_count", "url"];
         const lines = [headers.map(csvCell).join(",")];
-        for (const r of results) {
-          lines.push(headers.map((h) => csvCell((r as any)[h])).join(","));
+        for (const r of lean) {
+          lines.push(headers.map((h) => csvCell(r[h])).join(","));
         }
         res.send(lines.join("\n"));
         return;
