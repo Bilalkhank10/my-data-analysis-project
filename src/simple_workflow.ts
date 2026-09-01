@@ -60,10 +60,13 @@ export class SimpleWorkflowRunner {
         markdown_url: `/api/generation-runs/${genRunId}/export.md`,
       });
 
+      // language is the OUTPUT language of the gig copy (previously it was
+      // mis-fed into "experience level" in the prompt).
       await this.aiEngine.runGigGeneration(genRunId, {
         custom_angle: flow.inputs?.buyer,
         target_price: "market_aligned",
-        experience_level: flow.inputs?.language,
+        experience_level: "experienced professional",
+        language: flow.inputs?.language,
       });
 
       this.storage.updateSimpleWorkflow(workflowId, {

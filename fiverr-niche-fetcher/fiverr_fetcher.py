@@ -71,11 +71,40 @@ def utc_now() -> str:
 
 
 def reader_url(target: str) -> str:
-    """Return raw URL (bypassing Jina) since we use Firecrawl now."""
+    """Return the Jina Reader proxy URL for a public target URL.
+
+    Protocol-normalizes the target (adds https:// when missing) and prepends
+    the r.jina.ai prefix. Routes that prefer Firecrawl must pass the RAW URL
+    (``normalize_url``) to the Firecrawl API directly (see ``_get_text`` /
+    ``_fetch_gig``) and fall back to this Jina URL when no Firecrawl key is
+    configured.
+    """
+    return f"https://r.jina.ai/{normalize_url(target)}"
+
+
+def normalize_url(target: str) -> str:
+    """Protocol-normalize a URL: adds https:// when no scheme is present."""
     target = target.strip()
     if not target.startswith(("http://", "https://")):
         target = "https://" + target
     return target
+
+
+def jina_headers() -> dict[str, str]:
+    """Headers for Jina Reader requests.
+
+    A free ``JINA_API_KEY`` raises the rate limit from ~20 RPM (keyless) to
+    ~500 RPM, so we always attach it when one is configured.
+    """
+    headers = {
+        "Accept": "text/markdown",
+        "User-Agent": "Mozilla/5.0 (compatible; GigCraft/1.0)",
+        "X-Return-Format": "markdown",
+    }
+    api_key = os.getenv("JINA_API_KEY", "").strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
 
 
 def ssl_context() -> ssl.SSLContext:
@@ -1111,7 +1140,8 @@ class FiverrNicheFetcher:
         
         for attempt in range(attempts):
             try:
-                await asyncio.sleep(2.0)
+                # No artificial delay before the FIRST attempt; backoff is
+                # applied only between retries (below).
                 if api_key:
                     payload = {"url": url, "formats": ["markdown"]}
                     headers = {
@@ -1132,14 +1162,14 @@ class FiverrNicheFetcher:
                     
                     text = data.get("data", {}).get("markdown", "")
                 else:
-                    jina_url = f"https://r.jina.ai/{url}"
-                    response = await client.get(jina_url, headers={"X-Return-Format": "markdown"}, timeout=60.0)
+                    jina_url = reader_url(url)
+                    response = await client.get(jina_url, headers=jina_headers(), timeout=60.0)
                     if response.status_code in {429, 500, 502, 503, 504}:
                         raise httpx.HTTPStatusError("Rate limited", request=response.request, response=response)
                     response.raise_for_status()
                     text = response.text
                 if len(text.strip()) < 200:
-                    raise FetcherError("Firecrawl returned an empty or unusable response.")
+                    raise FetcherError("Reader returned an empty or unusable response.")
                 
                 lower_text = text.lower()
                 if "it needs a human touch" in lower_text or "just a moment..." in lower_text or "access to this page has been denied" in lower_text:
@@ -1200,7 +1230,9 @@ class FiverrNicheFetcher:
                     f"&source=top-bar&search_in=everywhere&page={page_number}"
                 )
                 try:
-                    markdown = await self._get_text(client, reader_url(source))
+                    # _get_text() routes internally: Firecrawl (raw URL) when
+                    # FIRECRAWL_API_KEY is set, Jina Reader otherwise.
+                    markdown = await self._get_text(client, normalize_url(source))
                 except Exception as exc:
                     if collected:
                         warnings.append(f"Search page {page_number} stopped pagination: {exc}")
@@ -1259,16 +1291,15 @@ class FiverrNicheFetcher:
     async def _fetch_gig(self, client: httpx.AsyncClient, url: str) -> GigRecord:
         parsed = urlparse(url)
         source = f"https://{parsed.netloc}{parsed.path}"
-        reader_endpoint = reader_url(source)  # use module-level helper for protocol normalization
         try:
             api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
             markdown, real_html = "", ""
-            
+
             attempts = max(3, self.settings.retry_count + 1)
             for attempt in range(attempts):
                 try:
-                    await asyncio.sleep(2.0)
-                    
+                    # No artificial delay before the FIRST attempt; backoff is
+                    # applied only between retries (below).
                     if api_key:
                         # Paid Route
                         payload = {"url": source, "formats": ["markdown", "html", "rawHtml"]}
@@ -1287,17 +1318,20 @@ class FiverrNicheFetcher:
                         markdown = data.get("markdown", "").strip()
                         real_html = data.get("rawHtml") or data.get("html", "")
                     else:
-                        # Free Route (Jina AI)
-                        jina_url = f"https://r.jina.ai/{source}"
-                        
+                        # Free Route (Jina AI) — reader_url() prefixes
+                        # r.jina.ai/; jina_headers() attaches JINA_API_KEY.
+                        jina_url = reader_url(source)
+
                         # Get HTML for JSON state
-                        h_res = await client.get(jina_url, headers={"X-Return-Format": "html"}, timeout=90.0)
+                        html_headers = jina_headers()
+                        html_headers["X-Return-Format"] = "html"
+                        h_res = await client.get(jina_url, headers=html_headers, timeout=90.0)
                         if h_res.status_code == 429:
                             raise httpx.HTTPStatusError("Rate limited", request=h_res.request, response=h_res)
                         real_html = h_res.text
-                        
+
                         # Get Markdown for text parsing
-                        m_res = await client.get(jina_url, headers={"X-Return-Format": "markdown"}, timeout=90.0)
+                        m_res = await client.get(jina_url, headers=jina_headers(), timeout=90.0)
                         markdown = m_res.text
 
                     if not real_html and not markdown:

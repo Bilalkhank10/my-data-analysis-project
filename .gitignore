@@ -6,13 +6,26 @@ venv/
 # Build output
 dist/
 
-# Runtime data & exports (in-memory storage persists here during runs)
+# Runtime data & exports (SQLite DB + exported gig data)
 data/
 output/
 
 # Environment / secrets
 .env
 .env.local
+
+# Release archives (keep on disk / use GitHub Releases; not version controlled)
+*.zip
+
+# Reference material (kept locally, not version controlled)
+uploads/
+
+# OS / tooling scratch that must never be committed
+.local/
+.sudo_as_admin_successful
+
+# Lock file for the other package manager (this repo uses npm)
+bun.lock
 
 # Python
 __pycache__/

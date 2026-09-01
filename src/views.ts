@@ -252,13 +252,12 @@ async function api(url, opts = {}) {
   return d;
 }
 
-// Append the auth token to direct-navigation URLs (file downloads open in a
-// new top-level navigation where Authorization headers cannot be set).
+// Direct-navigation URLs (file downloads open as top-level navigations).
+// Auth happens via the same-origin session cookie (sent automatically) and
+// via short-lived SIGNED download URLs from the API — the old ?token= query
+// parameter is gone (tokens in URLs leak via logs/referrers).
 function authUrl(url) {
-  const token = localStorage.getItem('gigcraft_auth_token');
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return url + sep + 'token=' + encodeURIComponent(token);
+  return url;
 }
 
 $('menuBtn').onclick = () => document.body.classList.toggle('nav-open');
@@ -1257,13 +1256,12 @@ async function api(url, options = {}) {
   return d;
 }
 
-// Append the auth token to direct-navigation URLs (file downloads open in a
-// new top-level navigation where Authorization headers cannot be set).
+// Direct-navigation URLs (file downloads open as top-level navigations).
+// Auth happens via the same-origin session cookie (sent automatically) and
+// via short-lived SIGNED download URLs from the API — the old ?token= query
+// parameter is gone (tokens in URLs leak via logs/referrers).
 function authUrl(url) {
-  const token = localStorage.getItem('gigcraft_auth_token');
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return url + sep + 'token=' + encodeURIComponent(token);
+  return url;
 }
 
 async function copyText(text, button) {

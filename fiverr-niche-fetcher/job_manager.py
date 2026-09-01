@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import auth
 from fiverr_fetcher import CrawlCancelled, FetcherError, FiverrNicheFetcher
 from market_analyzer import ANALYSIS_VERSION, MarketAnalyzer
 from storage import Storage, utc_now
@@ -218,9 +219,10 @@ class JobManager:
         result = dict(job)
         job_id = result["id"]
         if result.get("json_path"):
-            result.setdefault("downloads", {})["json"] = f"/download/{job_id}.json"
+            # Signed, time-limited URL (no session token in the query string).
+            result.setdefault("downloads", {})["json"] = auth.sign_download_url(f"{job_id}.json")
         if result.get("csv_path"):
-            result.setdefault("downloads", {})["csv"] = f"/download/{job_id}.csv"
+            result.setdefault("downloads", {})["csv"] = auth.sign_download_url(f"{job_id}.csv")
         result["results_url"] = f"/api/jobs/{job_id}/results"
         result["analysis_url"] = f"/api/jobs/{job_id}/analysis"
         result["cancel_url"] = f"/api/jobs/{job_id}/cancel"

@@ -109,6 +109,8 @@ export interface AIRunRecord {
   processed_gigs?: number;
   total_tokens?: number;
   actual_cost_usd?: number;
+  estimated_cost_usd?: number;
+  llm_used?: boolean;
   started_at?: string;
   finished_at?: string;
   error?: string;
@@ -125,6 +127,8 @@ export interface GenerationRunRecord {
   approval_status?: "draft" | "approved" | "rejected";
   total_tokens?: number;
   actual_cost_usd?: number;
+  estimated_cost_usd?: number;
+  llm_used?: boolean;
   started_at?: string;
   finished_at?: string;
   error?: string;
