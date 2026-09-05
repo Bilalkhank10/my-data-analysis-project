@@ -19,6 +19,8 @@ TypeScript · Express 5 · `@google/genai` (Gemini) · `node:sqlite` (persistenc
 
 ### Quick start
 
+> **Requires Node.js ≥ 22.5** (uses the `node:sqlite` builtin; tests will fail on older Node).
+
 ```bash
 npm install
 cp .env.example .env        # then optionally set GEMINI_API_KEY / JINA_API_KEY (a key is already in .env)
